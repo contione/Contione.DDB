@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Accounts.Domain/Accounts.Domain.csproj" />
+    <ProjectReference Include="../DynamoDb.Repository/DynamoDb.Repository.csproj" />
+  </ItemGroup>
+</Project>

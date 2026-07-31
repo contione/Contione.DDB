@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Accounts.Application/Accounts.Application.csproj" />
+    <ProjectReference Include="../Accounts.Domain/Accounts.Domain.csproj" />
+    <ProjectReference Include="../DynamoDb.Repository.Aws/DynamoDb.Repository.Aws.csproj" />
+    <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" />
+  </ItemGroup>
+</Project>

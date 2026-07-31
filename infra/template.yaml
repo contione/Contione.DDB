@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: DynamoDB table for the Accounts sample.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedPattern: '[a-z0-9-]+'
+
+Resources:
+  AccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${Environment}-accounts'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: tenant_id
+          AttributeType: S
+        - AttributeName: account_id
+          AttributeType: S
+        - AttributeName: status
+          AttributeType: N
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: tenant_id
+          KeyType: HASH
+        - AttributeName: account_id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: status-created-at-index
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+Outputs:
+  TableName:
+    Value: !Ref AccountsTable
