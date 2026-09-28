@@ -1,0 +1,37 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+    env:
+      DYNAMODB_LOCAL_ENDPOINT: http://localhost:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - run: dotnet restore DynamoDbRepository.slnx --locked-mode
+      - run: dotnet build DynamoDbRepository.slnx -c Release --no-restore
+      - run: dotnet test DynamoDbRepository.slnx -c Release --no-build --logger trx --results-directory artifacts/tests
+      - run: dotnet pack src/DynamoDb.Repository/DynamoDb.Repository.csproj -c Release --no-build -o artifacts/packages
+      - run: dotnet pack src/DynamoDb.Repository.Aws/DynamoDb.Repository.Aws.csproj -c Release --no-build -o artifacts/packages
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-artifacts
+          path: artifacts/

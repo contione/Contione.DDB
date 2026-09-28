@@ -1,0 +1,77 @@
+{
+  "version": 2,
+  "dependencies": {
+    "net10.0": {
+      "Microsoft.AspNetCore.OpenApi": {
+        "type": "Direct",
+        "requested": "[10.0.10, )",
+        "resolved": "10.0.10",
+        "contentHash": "d4Atx9IHq7JgX0F/h7Db+m9zAUzC+cKdI9k+OWnnyQIOUQtfvjIEuhvbjPigVMkAmPUgCbJ8Yp6M9ghUqHtJSQ==",
+        "dependencies": {
+          "Microsoft.OpenApi": "2.0.0"
+        }
+      },
+      "Microsoft.OpenApi": {
+        "type": "Direct",
+        "requested": "[2.7.5, )",
+        "resolved": "2.7.5",
+        "contentHash": "0FA67RSnRM4tcBKqiqVu/HPdZ9+QOKbmeRjxRUGTCjPU4C0bmUhd97Dso7Yild5P7nOV6GxJ2xrK0Kv/O9xp0w=="
+      },
+      "AWSSDK.Core": {
+        "type": "Transitive",
+        "resolved": "4.0.100.9",
+        "contentHash": "OPYy41jZjXwxxcYRotaq24HDrwUnVtBB/mvg1IwB9D1ICXAtHqMa1sp2hpmlVJCZwjlcrPcTCJIejInvV1vp5g=="
+      },
+      "accounts.application": {
+        "type": "Project",
+        "dependencies": {
+          "Accounts.Domain": "[2.0.0, )",
+          "Professional.DynamoDb.Repository": "[2.0.0, )"
+        }
+      },
+      "accounts.domain": {
+        "type": "Project",
+        "dependencies": {
+          "Professional.DynamoDb.Repository": "[2.0.0, )"
+        }
+      },
+      "accounts.infrastructure": {
+        "type": "Project",
+        "dependencies": {
+          "AWSSDK.Extensions.NETCore.Setup": "[4.0.100.7, )",
+          "Accounts.Application": "[2.0.0, )",
+          "Accounts.Domain": "[2.0.0, )",
+          "Professional.DynamoDb.Repository.Aws": "[2.0.0, )"
+        }
+      },
+      "Professional.DynamoDb.Repository": {
+        "type": "Project"
+      },
+      "Professional.DynamoDb.Repository.Aws": {
+        "type": "Project",
+        "dependencies": {
+          "AWSSDK.DynamoDBv2": "[4.0.102.1, )",
+          "Professional.DynamoDb.Repository": "[2.0.0, )"
+        }
+      },
+      "AWSSDK.DynamoDBv2": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.102.1, )",
+        "resolved": "4.0.102.1",
+        "contentHash": "ZxvRoZcMbLeqGm9B4TsYHT6B6PsnIwve+kckPgb2IPuNzPEXzIRpUIlyGuSQg37NFPgkh6/3m4/QD5wkkHFdSg==",
+        "dependencies": {
+          "AWSSDK.Core": "[4.0.100.9, 5.0.0)"
+        }
+      },
+      "AWSSDK.Extensions.NETCore.Setup": {
+        "type": "CentralTransitive",
+        "requested": "[4.0.100.7, )",
+        "resolved": "4.0.100.7",
+        "contentHash": "Jr31G8VYjdmv60y1Bt7Iwy2RPlXtGf00ZnrmkIwNhS2Szay240q/0+S67p6LwSurw6hVoBUd04etk/Gl0mVUpQ==",
+        "dependencies": {
+          "AWSSDK.Core": "4.0.100.9"
+        }
+      }
+    }
+  }
+}

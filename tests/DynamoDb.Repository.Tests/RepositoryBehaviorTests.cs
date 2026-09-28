@@ -219,6 +219,7 @@ public sealed class RepositoryBehaviorTests
             TableNamePrefix = "test-",
             DefaultFetchSize = 25,
             MaxPageSize = 100,
+            AllowScan = true,
         }));
 
     private static Dictionary<string, AttributeValue> CreateMap(string id = "account-1") => new()

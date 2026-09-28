@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Amazon.DynamoDBv2.Model;
 
 namespace DynamoDb.Repository.Aws;
@@ -8,15 +9,25 @@ internal sealed class EntityMapper<TEntity> where TEntity : class
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = false,
+        Converters = { new JsonStringEnumConverter() },
     };
 
     private readonly EntityMetadata _metadata = EntityMetadata.For<TEntity>();
 
-    public Dictionary<string, AttributeValue> ToMap(TEntity entity) =>
-        _metadata.Properties.ToDictionary(
-            static property => property.AttributeName,
-            property => AttributeValueConverter.FromObject(property.GetValue(entity)),
-            StringComparer.Ordinal);
+    public Dictionary<string, AttributeValue> ToMap(TEntity entity)
+    {
+        var map = new Dictionary<string, AttributeValue>(_metadata.Properties.Count, StringComparer.Ordinal);
+        foreach (var property in _metadata.Properties)
+        {
+            var value = property.GetValue(entity);
+            // Missing secondary keys intentionally exclude the item from a sparse index.
+            if (value is null && property.IsIndexKey && !property.IsPrimaryKey) continue;
+            map[property.AttributeName] = property.IsPrimaryKey || property.IsIndexKey
+                ? AttributeValueConverter.FromKey(value, property)
+                : AttributeValueConverter.FromObject(value);
+        }
+        return map;
+    }
 
     public TEntity FromMap(IReadOnlyDictionary<string, AttributeValue> map)
     {
@@ -31,14 +42,15 @@ internal sealed class EntityMapper<TEntity> where TEntity : class
                     continue;
                 }
 
-                writer.WritePropertyName(property.Property.Name);
+                writer.WritePropertyName(property.JsonName);
                 AttributeValueConverter.WriteJson(writer, value);
             }
 
             writer.WriteEndObject();
         }
 
-        return JsonSerializer.Deserialize<TEntity>(stream.ToArray(), JsonOptions)
+        stream.Position = 0;
+        return JsonSerializer.Deserialize<TEntity>(stream, JsonOptions)
             ?? throw new InvalidOperationException($"Could not materialize '{typeof(TEntity).Name}'.");
     }
 }

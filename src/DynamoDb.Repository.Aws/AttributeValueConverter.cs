@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Amazon.DynamoDBv2.Model;
 
@@ -7,6 +8,33 @@ namespace DynamoDb.Repository.Aws;
 
 internal static class AttributeValueConverter
 {
+    internal static bool IsKeyType(Type type)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        return type.IsEnum || type == typeof(string) || type == typeof(char) || type == typeof(byte[]) ||
+            type == typeof(Guid) || type == typeof(DateTime) || type == typeof(DateTimeOffset) ||
+            type == typeof(DateOnly) || type == typeof(TimeOnly) ||
+            Type.GetTypeCode(type) is TypeCode.SByte or TypeCode.Byte or TypeCode.Int16 or TypeCode.UInt16 or
+                TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Int64 or TypeCode.UInt64 or TypeCode.Single or
+                TypeCode.Double or TypeCode.Decimal;
+    }
+
+    internal static AttributeValue FromKey(object? value, PropertyMetadata property)
+    {
+        var type = Nullable.GetUnderlyingType(property.Property.PropertyType) ?? property.Property.PropertyType;
+        if (value is null || !type.IsInstanceOfType(value))
+        {
+            throw new ArgumentException($"Key '{property.Property.Name}' requires a non-null '{type.Name}' value.");
+        }
+        var result = FromObject(value);
+        var size = result.S is not null ? Encoding.UTF8.GetByteCount(result.S) : result.B?.Length;
+        if (size is 0 || size > property.KeySizeLimit || (result.S is null && result.N is null && result.B is null))
+        {
+            throw new ArgumentException($"Key '{property.Property.Name}' must be a nonempty scalar within the {property.KeySizeLimit}-byte key limit.");
+        }
+        return result;
+    }
+
     public static AttributeValue FromObject(object? value)
     {
         if (value is null)
@@ -26,6 +54,8 @@ internal static class AttributeValueConverter
             DateOnly date => new AttributeValue { S = date.ToString("O", CultureInfo.InvariantCulture) },
             TimeOnly time => new AttributeValue { S = time.ToString("O", CultureInfo.InvariantCulture) },
             Enum enumValue => new AttributeValue { S = enumValue.ToString() },
+            float number when !float.IsFinite(number) => throw new ArgumentOutOfRangeException(nameof(value), "DynamoDB numbers must be finite."),
+            double number when !double.IsFinite(number) => throw new ArgumentOutOfRangeException(nameof(value), "DynamoDB numbers must be finite."),
             sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal =>
                 new AttributeValue { N = Convert.ToString(value, CultureInfo.InvariantCulture) },
             IDictionary dictionary => FromDictionary(dictionary),
@@ -94,9 +124,15 @@ internal static class AttributeValueConverter
 
             writer.WriteEndArray();
         }
+        else if (value.BS is not null)
+        {
+            writer.WriteStartArray();
+            foreach (var item in value.BS) writer.WriteBase64StringValue(item.ToArray());
+            writer.WriteEndArray();
+        }
         else
         {
-            writer.WriteNullValue();
+            throw new NotSupportedException("The DynamoDB attribute has no supported value type.");
         }
     }
 

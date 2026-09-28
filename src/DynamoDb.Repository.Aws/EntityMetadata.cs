@@ -1,13 +1,18 @@
 using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Text.Json.Serialization;
 
 namespace DynamoDb.Repository.Aws;
 
 internal sealed record PropertyMetadata(
     PropertyInfo Property,
     string AttributeName,
-    Func<object, object?> GetValue);
+    Func<object, object?> GetValue,
+    string JsonName,
+    bool IsPrimaryKey,
+    bool IsIndexKey,
+    int KeySizeLimit);
 
 internal sealed record KeySchema(PropertyMetadata PartitionKey, PropertyMetadata? SortKey);
 
@@ -25,10 +30,16 @@ internal sealed class EntityMetadata
 
         Properties = entityType
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
-            .Where(static property => property.GetMethod is not null &&
+            .Where(static property => property.GetMethod is { IsPublic: true } &&
+                property.GetIndexParameters().Length == 0 &&
                 property.GetCustomAttribute<DynamoDbIgnoreAttribute>() is null)
             .Select(CreateProperty)
             .ToArray();
+
+        if (Properties.Select(static property => property.AttributeName).Distinct(StringComparer.Ordinal).Count() != Properties.Count)
+        {
+            throw new InvalidOperationException($"Entity '{entityType.Name}' maps multiple properties to the same attribute.");
+        }
 
         _propertiesByClrName = Properties.ToDictionary(
             static property => property.Property.Name,
@@ -48,6 +59,10 @@ internal sealed class EntityMetadata
         }
 
         PrimaryKey = new KeySchema(partitionKeys[0], sortKeys.SingleOrDefault());
+        if (PrimaryKey.PartitionKey == PrimaryKey.SortKey)
+        {
+            throw new InvalidOperationException("Partition and sort keys must be different properties.");
+        }
         _indexes = BuildIndexes(Properties);
     }
 
@@ -80,6 +95,17 @@ internal sealed class EntityMetadata
 
     private static PropertyMetadata CreateProperty(PropertyInfo property)
     {
+        if (property.GetCustomAttribute<JsonIgnoreAttribute>() is { Condition: JsonIgnoreCondition.Always })
+        {
+            throw new InvalidOperationException($"Mapped property '{property.Name}' cannot use JsonIgnore. Use DynamoDbIgnore instead.");
+        }
+        var primary = property.IsDefined(typeof(DynamoDbPartitionKeyAttribute)) || property.IsDefined(typeof(DynamoDbSortKeyAttribute));
+        var indexed = property.IsDefined(typeof(DynamoDbIndexPartitionKeyAttribute)) || property.IsDefined(typeof(DynamoDbIndexSortKeyAttribute));
+        var sortKey = property.IsDefined(typeof(DynamoDbSortKeyAttribute)) || property.IsDefined(typeof(DynamoDbIndexSortKeyAttribute));
+        if ((primary || indexed) && !AttributeValueConverter.IsKeyType(property.PropertyType))
+        {
+            throw new InvalidOperationException($"Key '{property.Name}' must map to a DynamoDB string, number or binary value.");
+        }
         var instance = Expression.Parameter(typeof(object), "instance");
         var getter = Expression.Lambda<Func<object, object?>>(
             Expression.Convert(
@@ -90,7 +116,11 @@ internal sealed class EntityMetadata
         return new PropertyMetadata(
             property,
             property.GetCustomAttribute<DynamoDbPropertyAttribute>()?.Name ?? property.Name,
-            getter);
+            getter,
+            property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? property.Name,
+            primary,
+            indexed,
+            sortKey ? 1_024 : 2_048);
     }
 
     private static IReadOnlyDictionary<string, KeySchema> BuildIndexes(
@@ -107,6 +137,16 @@ internal sealed class EntityMetadata
                 .GetCustomAttributes<DynamoDbIndexSortKeyAttribute>()
                 .Select(attribute => (attribute.IndexName, Property: property)))
             .ToLookup(static pair => pair.IndexName, StringComparer.Ordinal);
+
+        if (partitionKeys.GroupBy(static pair => pair.IndexName, StringComparer.Ordinal).Any(static group => group.Count() != 1) ||
+            sortKeys.Any(group => group.Count() > 1 || !partitionKeys.Any(pair => pair.IndexName == group.Key)))
+        {
+            throw new InvalidOperationException("Each index must have one partition key and at most one sort key.");
+        }
+        if (partitionKeys.Any(pair => sortKeys[pair.IndexName].Any(sort => sort.Property == pair.Property)))
+        {
+            throw new InvalidOperationException("Index partition and sort keys must be different properties.");
+        }
 
         return partitionKeys.ToDictionary(
             static pair => pair.IndexName,

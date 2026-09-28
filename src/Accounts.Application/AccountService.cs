@@ -22,7 +22,7 @@ public sealed class AccountService(IDynamoDbRepository<Account> accountRepositor
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
-        await accountRepository.PutAsync(account, cancellationToken).ConfigureAwait(false);
+        await accountRepository.CreateAsync(account, cancellationToken).ConfigureAwait(false);
         return account;
     }
 

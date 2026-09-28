@@ -30,7 +30,9 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
         BinaryExpression binary when IsComparison(binary.NodeType) => VisitComparison(binary),
         UnaryExpression { NodeType: ExpressionType.Not } unary => $"(NOT {Visit(unary.Operand)})",
         UnaryExpression { NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked } unary =>
-            Visit(unary.Operand),
+            IsSafeConversion(unary.Operand.Type, unary.Type)
+                ? Visit(unary.Operand)
+                : throw Unsupported(unary),
         MethodCallExpression call => VisitMethodCall(call),
         MemberExpression member when TryGetMappedProperty(member, out var property) =>
             $"{AddName(property.AttributeName)} = {AddValue(true)}",
@@ -41,16 +43,16 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
 
     private string VisitComparison(BinaryExpression binary)
     {
-        if (TryGetMappedProperty(Unwrap(binary.Left), out var leftProperty))
+        if (TryGetMappedProperty(binary.Left, out var leftProperty))
         {
             return $"{AddName(leftProperty.AttributeName)} {ComparisonOperator(binary.NodeType)} " +
-                AddValue(Evaluate(binary.Right));
+                AddValue(EvaluateComparisonValue(binary.Left, binary.Right, leftProperty, binary.NodeType));
         }
 
-        if (TryGetMappedProperty(Unwrap(binary.Right), out var rightProperty))
+        if (TryGetMappedProperty(binary.Right, out var rightProperty))
         {
             return $"{AddName(rightProperty.AttributeName)} {ComparisonOperator(Reverse(binary.NodeType))} " +
-                AddValue(Evaluate(binary.Left));
+                AddValue(EvaluateComparisonValue(binary.Right, binary.Left, rightProperty, binary.NodeType));
         }
 
         throw Unsupported(binary);
@@ -60,7 +62,7 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
     {
         if (call.Method.DeclaringType == typeof(string) &&
             call.Object is not null &&
-            TryGetMappedProperty(Unwrap(call.Object), out var stringProperty) &&
+            TryGetMappedProperty(call.Object, out var stringProperty) &&
             call.Arguments.Count == 1)
         {
             var function = call.Method.Name switch
@@ -92,20 +94,32 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
                 throw Unsupported(call);
             }
 
-            if (TryGetMappedProperty(Unwrap(item), out var itemProperty))
+            if (TryGetMappedProperty(item, out var itemProperty))
             {
                 var values = EvaluateCollection(collection) as IEnumerable
                     ?? throw new NotSupportedException("Contains source must be an enumerable constant.");
-                var tokens = values.Cast<object?>().Select(AddValue).ToArray();
-                if (tokens.Length == 0)
+                var items = new List<object?>(100);
+                foreach (var value in values)
+                {
+                    if (items.Count == 100)
+                    {
+                        throw new NotSupportedException(
+                            "DynamoDB IN expressions support at most 100 values.");
+                    }
+
+                    items.Add(value);
+                }
+
+                if (items.Count == 0)
                 {
                     return AddAlwaysFalse();
                 }
 
+                var tokens = items.Select(AddValue).ToArray();
                 return $"{AddName(itemProperty.AttributeName)} IN ({string.Join(", ", tokens)})";
             }
 
-            if (TryGetMappedProperty(Unwrap(collection), out var collectionProperty))
+            if (TryGetMappedProperty(collection, out var collectionProperty))
             {
                 return $"contains({AddName(collectionProperty.AttributeName)}, {AddValue(Evaluate(item))})";
             }
@@ -116,14 +130,84 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
 
     private bool TryGetMappedProperty(Expression expression, out PropertyMetadata property)
     {
+        var conversions = new List<(Type Source, Type Destination)>();
+        while (expression is UnaryExpression
+            {
+                NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked,
+            } unary)
+        {
+            conversions.Add((unary.Operand.Type, unary.Type));
+            expression = unary.Operand;
+        }
+
         if (expression is MemberExpression { Expression: ParameterExpression } member)
         {
             property = metadata.GetProperty(member.Member);
-            return true;
+            var propertyType = property.Property.PropertyType;
+            if (conversions.All(conversion => IsSafePropertyConversion(
+                conversion.Source,
+                conversion.Destination,
+                propertyType)))
+            {
+                return true;
+            }
         }
 
         property = null!;
         return false;
+    }
+
+    internal TranslatedExpression TranslateBetween(
+        Expression propertyExpression,
+        Expression lowerBound,
+        Expression upperBound)
+    {
+        if (!TryGetMappedProperty(propertyExpression, out var property))
+        {
+            throw Unsupported(propertyExpression);
+        }
+
+        var lowerValue = EvaluateComparisonValue(
+            propertyExpression,
+            lowerBound,
+            property,
+            ExpressionType.GreaterThanOrEqual);
+        var upperValue = EvaluateComparisonValue(
+            propertyExpression,
+            upperBound,
+            property,
+            ExpressionType.LessThanOrEqual);
+        var expression =
+            $"{AddName(property.AttributeName)} BETWEEN {AddValue(lowerValue)} AND {AddValue(upperValue)}";
+        return new TranslatedExpression(expression, _names, _values);
+    }
+
+    internal static AttributeValue ToAttributeValue(Expression expression) =>
+        AttributeValueConverter.FromObject(Evaluate(expression));
+
+    internal static bool IsEntityPropertyAccess(
+        Expression expression,
+        ParameterExpression entityParameter,
+        PropertyMetadata property)
+    {
+        var conversions = new List<(Type Source, Type Destination)>();
+        while (expression is UnaryExpression
+            {
+                NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked,
+            } unary)
+        {
+            conversions.Add((unary.Operand.Type, unary.Type));
+            expression = unary.Operand;
+        }
+
+        return expression is MemberExpression
+        {
+            Expression: ParameterExpression parameter,
+        } member && parameter == entityParameter && member.Member == property.Property &&
+            conversions.All(conversion => IsSafePropertyConversion(
+                conversion.Source,
+                conversion.Destination,
+                property.Property.PropertyType));
     }
 
     private string AddName(string attributeName)
@@ -178,6 +262,45 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
             _ => throw new NotSupportedException(
                 $"Value expression '{expression}' must be a constant, captured member, or array."),
         };
+    }
+
+    private static object? EvaluateComparisonValue(
+        Expression propertyExpression,
+        Expression valueExpression,
+        PropertyMetadata property,
+        ExpressionType comparison)
+    {
+        var value = Evaluate(valueExpression);
+        var propertyType = Nullable.GetUnderlyingType(property.Property.PropertyType)
+            ?? property.Property.PropertyType;
+        var comparisonType = Nullable.GetUnderlyingType(propertyExpression.Type)
+            ?? propertyExpression.Type;
+
+        if (propertyType.IsEnum && comparisonType != propertyType)
+        {
+            if (comparison is not (ExpressionType.Equal or ExpressionType.NotEqual))
+            {
+                throw new NotSupportedException(
+                    "Ordering an enum after converting it to its numeric value cannot be represented by its string storage.");
+            }
+
+            if (value is null)
+            {
+                return null;
+            }
+
+            var underlyingType = Enum.GetUnderlyingType(propertyType);
+            return Enum.ToObject(
+                propertyType,
+                Convert.ChangeType(value, underlyingType, System.Globalization.CultureInfo.InvariantCulture)!);
+        }
+
+        if (propertyType == typeof(char) && comparisonType != propertyType && value is not null)
+        {
+            return Convert.ToChar(value, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return value;
     }
 
     private static object? EvaluateCollection(Expression expression) =>
@@ -242,18 +365,80 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
         return visitor.Found;
     }
 
-    private static Expression Unwrap(Expression expression)
+    private static bool IsSafeConversion(Type sourceType, Type destinationType)
     {
-        while (expression is UnaryExpression
-            {
-                NodeType: ExpressionType.Convert or ExpressionType.ConvertChecked,
-            } unary)
+        var sourceNullableType = Nullable.GetUnderlyingType(sourceType);
+        var destinationNullableType = Nullable.GetUnderlyingType(destinationType);
+        if (sourceNullableType is not null && destinationNullableType is null)
         {
-            expression = unary.Operand;
+            return false;
         }
 
-        return expression;
+        var source = sourceNullableType ?? sourceType;
+        var destination = destinationNullableType ?? destinationType;
+        if (source == destination)
+        {
+            return true;
+        }
+
+        return IsExactNumericWidening(source, destination);
     }
+
+    private static bool IsSafePropertyConversion(
+        Type sourceType,
+        Type destinationType,
+        Type propertyType)
+    {
+        var sourceNullableType = Nullable.GetUnderlyingType(sourceType);
+        var destinationNullableType = Nullable.GetUnderlyingType(destinationType);
+        if (sourceNullableType is not null && destinationNullableType is null)
+        {
+            return false;
+        }
+
+        var source = sourceNullableType ?? sourceType;
+        var destination = destinationNullableType ?? destinationType;
+        var property = Nullable.GetUnderlyingType(propertyType) ?? propertyType;
+        if (source == destination)
+        {
+            return true;
+        }
+
+        if (source == property && property.IsEnum)
+        {
+            var underlying = Enum.GetUnderlyingType(property);
+            return destination == underlying || IsExactNumericWidening(underlying, destination);
+        }
+
+        if (source == property && property == typeof(char))
+        {
+            return destination == typeof(ushort) ||
+                IsExactNumericWidening(typeof(ushort), destination);
+        }
+
+        return IsExactNumericWidening(source, destination);
+    }
+
+    private static bool IsExactNumericWidening(Type source, Type destination) =>
+        Type.GetTypeCode(source) switch
+        {
+            TypeCode.SByte => destination == typeof(short) || destination == typeof(int) ||
+                destination == typeof(long) || destination == typeof(decimal),
+            TypeCode.Byte => destination == typeof(short) || destination == typeof(ushort) ||
+                destination == typeof(int) || destination == typeof(uint) ||
+                destination == typeof(long) || destination == typeof(ulong) ||
+                destination == typeof(decimal),
+            TypeCode.Int16 => destination == typeof(int) || destination == typeof(long) ||
+                destination == typeof(decimal),
+            TypeCode.UInt16 => destination == typeof(int) || destination == typeof(uint) ||
+                destination == typeof(long) || destination == typeof(ulong) ||
+                destination == typeof(decimal),
+            TypeCode.Int32 => destination == typeof(long) || destination == typeof(decimal),
+            TypeCode.UInt32 => destination == typeof(long) || destination == typeof(ulong) ||
+                destination == typeof(decimal),
+            TypeCode.Int64 or TypeCode.UInt64 => destination == typeof(decimal),
+            _ => false,
+        };
 
     private static bool IsLogical(ExpressionType type) =>
         type is ExpressionType.AndAlso or ExpressionType.OrElse;

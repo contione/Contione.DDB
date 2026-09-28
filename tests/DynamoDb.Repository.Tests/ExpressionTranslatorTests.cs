@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using DynamoDb.Repository;
 using DynamoDb.Repository.Aws;
 
 namespace DynamoDb.Repository.Tests;
@@ -104,5 +105,107 @@ public sealed class ExpressionTranslatorTests
         var translator = new ExpressionTranslator(EntityMetadata.For<TestEntity>());
 
         Assert.Throws<NotSupportedException>(() => translator.Translate(predicate.Body));
+    }
+
+    [Fact]
+    public void Translator_stores_enum_comparison_values_as_names()
+    {
+        Expression<Func<EnumEntity, bool>> predicate = entity => entity.Status == AccountStatus.Active;
+        var translator = new ExpressionTranslator(EntityMetadata.For<EnumEntity>());
+
+        var result = translator.Translate(predicate.Body);
+
+        Assert.Equal("Active", Assert.Single(result.Values).Value.S);
+    }
+
+    [Fact]
+    public void Translator_stores_char_comparison_values_as_strings()
+    {
+        Expression<Func<EnumEntity, bool>> predicate = entity => entity.Grade == 'A';
+        var translator = new ExpressionTranslator(EntityMetadata.For<EnumEntity>());
+
+        var result = translator.Translate(predicate.Body);
+
+        Assert.Equal("A", Assert.Single(result.Values).Value.S);
+    }
+
+    [Fact]
+    public void Translator_normalizes_char_numeric_comparison_to_stored_character()
+    {
+        Expression<Func<EnumEntity, bool>> predicate = entity => (int)entity.Grade == 65;
+        var translator = new ExpressionTranslator(EntityMetadata.For<EnumEntity>());
+
+        var result = translator.Translate(predicate.Body);
+
+        Assert.Equal("A", Assert.Single(result.Values).Value.S);
+    }
+
+    [Fact]
+    public void Translator_supports_exact_numeric_widening()
+    {
+        Expression<Func<TestEntity, bool>> predicate = entity => entity.Status == 3L;
+        var translator = new ExpressionTranslator(EntityMetadata.For<TestEntity>());
+
+        var result = translator.Translate(predicate.Body);
+
+        Assert.Equal("3", Assert.Single(result.Values).Value.N);
+    }
+
+    [Fact]
+    public void Translator_rejects_narrowing_property_conversion()
+    {
+        Expression<Func<TestEntity, bool>> predicate = entity => (short)entity.Status == 3;
+        var translator = new ExpressionTranslator(EntityMetadata.For<TestEntity>());
+
+        Assert.Throws<NotSupportedException>(() => translator.Translate(predicate.Body));
+    }
+
+    [Fact]
+    public void Translator_normalizes_enum_numeric_equality_to_stored_name()
+    {
+        Expression<Func<EnumEntity, bool>> predicate = entity => (int)entity.Status == 1;
+        var translator = new ExpressionTranslator(EntityMetadata.For<EnumEntity>());
+
+        var result = translator.Translate(predicate.Body);
+
+        Assert.Equal("Active", Assert.Single(result.Values).Value.S);
+    }
+
+    [Fact]
+    public void Translator_rejects_enum_numeric_ordering_that_changes_storage_semantics()
+    {
+        Expression<Func<EnumEntity, bool>> predicate = entity => (int)entity.Status < 2;
+        var translator = new ExpressionTranslator(EntityMetadata.For<EnumEntity>());
+
+        Assert.Throws<NotSupportedException>(() => translator.Translate(predicate.Body));
+    }
+
+    [Fact]
+    public void Translator_rejects_in_expression_with_more_than_100_values()
+    {
+        var statuses = Enumerable.Range(0, 101).ToArray();
+        Expression<Func<TestEntity, bool>> predicate = entity => statuses.Contains(entity.Status);
+        var translator = new ExpressionTranslator(EntityMetadata.For<TestEntity>());
+
+        var exception = Assert.Throws<NotSupportedException>(() => translator.Translate(predicate.Body));
+
+        Assert.Contains("at most 100", exception.Message, StringComparison.Ordinal);
+    }
+
+    [DynamoDbTable("enum-tests")]
+    private sealed class EnumEntity
+    {
+        [DynamoDbPartitionKey]
+        public string TenantId { get; init; } = string.Empty;
+
+        public AccountStatus Status { get; init; }
+
+        public char Grade { get; init; }
+    }
+
+    private enum AccountStatus
+    {
+        Pending,
+        Active,
     }
 }

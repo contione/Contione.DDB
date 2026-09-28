@@ -8,7 +8,8 @@ internal sealed record QueryState<TEntity>(
     PropertyMetadata? OrderProperty = null,
     bool Descending = false,
     bool ConsistentRead = false,
-    int? Take = null)
+    int? Take = null,
+    bool? AllowScan = null)
     where TEntity : class
 {
     public static QueryState<TEntity> Empty { get; } = new([]);
@@ -51,34 +52,17 @@ internal sealed class DynamoDbQuery<TEntity>(
     public IDynamoDbQuery<TEntity> WithConsistentRead(bool enabled = true) =>
         New(_state with { ConsistentRead = enabled });
 
+    public IDynamoDbQuery<TEntity> AllowScan(bool enabled = true) =>
+        New(_state with { AllowScan = enabled });
+
     public IDynamoDbQuery<TEntity> Take(int count)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(count);
         return New(_state with { Take = count });
     }
 
-    public async Task<IReadOnlyList<TEntity>> ToListAsync(
-        CancellationToken cancellationToken = default)
-    {
-        var capacity = _state.Take ?? int.MaxValue;
-        var items = new List<TEntity>(Math.Min(capacity, 1_024));
-        string? token = null;
-
-        do
-        {
-            var size = Math.Min(repository.FetchSize, capacity - items.Count);
-            var page = await repository.ExecutePageAsync(
-                _state with { Take = null },
-                size,
-                token,
-                cancellationToken).ConfigureAwait(false);
-            items.AddRange(page.Items);
-            token = page.ContinuationToken;
-        }
-        while (token is not null && items.Count < capacity);
-
-        return items;
-    }
+    public Task<IReadOnlyList<TEntity>> ToListAsync(CancellationToken cancellationToken = default) =>
+        repository.ExecuteListAsync(_state, cancellationToken);
 
     public Task<PageResult<TEntity>> ToPageAsync(
         int pageSize,
@@ -86,23 +70,14 @@ internal sealed class DynamoDbQuery<TEntity>(
         CancellationToken cancellationToken = default) =>
         repository.ExecutePageAsync(_state, pageSize, continuationToken, cancellationToken);
 
-    public async Task<TEntity?> FirstOrDefaultAsync(CancellationToken cancellationToken = default)
-    {
-        var page = await repository.ExecutePageAsync(
-            _state with { Take = 1 },
-            1,
-            null,
-            cancellationToken).ConfigureAwait(false);
-        return page.Items.FirstOrDefault();
-    }
+    public Task<TEntity?> FirstOrDefaultAsync(CancellationToken cancellationToken = default) =>
+        repository.ExecuteFirstAsync(_state, cancellationToken);
 
     public async Task<bool> AnyAsync(CancellationToken cancellationToken = default) =>
-        await repository.ExecuteCountAsync(
-            _state with { Take = 1 },
-            cancellationToken).ConfigureAwait(false) > 0;
+        await repository.ExecuteCountAsync(_state, existsOnly: true, cancellationToken).ConfigureAwait(false) > 0;
 
     public Task<int> CountAsync(CancellationToken cancellationToken = default) =>
-        repository.ExecuteCountAsync(_state, cancellationToken);
+        repository.ExecuteCountAsync(_state, existsOnly: false, cancellationToken);
 
     private IDynamoDbQuery<TEntity> SetOrder(
         Expression<Func<TEntity, object?>> keySelector,
