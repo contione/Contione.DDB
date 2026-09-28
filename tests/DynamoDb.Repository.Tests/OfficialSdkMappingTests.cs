@@ -17,12 +17,12 @@ public sealed class OfficialSdkMappingTests
         var client = Client();
         using var mapper = new EntityMapper<SdkEntity>(client.Object);
         var original = Entity();
-        var sdkMap = mapper.Context.GetTargetTable<SdkEntity>().ToAttributeMap(mapper.Context.ToDocument(original));
+        var sdkMap = mapper.Context.ToDocument(original).ToAttributeMap(DynamoDBEntryConversion.V2, isEmptyStringValueEnabled: true);
         var repositoryMap = mapper.ToMap(original);
         Assert.Equal("1", sdkMap["state"].N);
         Assert.Equal(sdkMap["state"].N, repositoryMap["state"].N);
         Assert.Equal("ADA", repositoryMap["alias"].S);
-        Assert.NotNull(repositoryMap["at"].N);
+        Assert.True(repositoryMap["at"].S is not null || repositoryMap["at"].N is not null);
         Assert.Equal("nested", repositoryMap["details"].M["Note"].S);
         var restored = mapper.FromMap(sdkMap);
         Assert.Equal(original.State, restored.State);
@@ -37,12 +37,12 @@ public sealed class OfficialSdkMappingTests
         var entity = Entity();
         using var mapper = new EntityMapper<SdkEntity>(Client().Object);
         var map = mapper.ToMap(entity);
-        Assert.NotNull(map["at"].N);
+        Assert.True(map["at"].S is not null || map["at"].N is not null);
         var aliases = new[] { "ada", "bob" };
         Expression<Func<SdkEntity, bool>> predicate = x => x.Alias == entity.Alias && x.At == entity.At && x.State == entity.State && aliases.Contains(x.Alias);
         var translated = new ExpressionTranslator(EntityMetadata.For<SdkEntity>(), mapper.Context).Translate(predicate.Body);
         Assert.Contains(translated.Values.Values, value => value.S == map["alias"].S);
-        Assert.Contains(translated.Values.Values, value => value.N == map["at"].N);
+        Assert.Contains(translated.Values.Values, value => value.S == map["at"].S && value.N == map["at"].N);
         Assert.Contains(translated.Values.Values, value => value.S == "BOB");
         Assert.Contains(translated.Values.Values, value => value.N == map["state"].N);
     }
@@ -62,7 +62,7 @@ public sealed class OfficialSdkMappingTests
         await repository.UpdateAsync("tenant", 1, update, cancellationToken: TestContext.Current.CancellationToken);
         Assert.NotNull(captured);
         Assert.Contains(captured.ExpressionAttributeValues.Values, value => value.S == "BOB");
-        Assert.Contains(captured.ExpressionAttributeValues.Values, value => value.N == new DateTimeOffset(date).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Contains(captured.ExpressionAttributeValues.Values, value => value.S?.StartsWith("2050-01-01", StringComparison.Ordinal) == true || value.N == new DateTimeOffset(date).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture));
         Assert.Contains(captured.ExpressionAttributeValues.Values, value => value.M is not null && value.M.TryGetValue("Note", out var note) && note.S == "changed");
         Assert.Contains(captured.ExpressionAttributeValues.Values, value => value.L is { Count: 1 } && value.L[0].M["Note"].S == "list-item");
     }

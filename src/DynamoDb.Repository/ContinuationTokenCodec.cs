@@ -99,11 +99,16 @@ internal static class ContinuationTokenCodec
             throw new ArgumentException($"Continuation key attribute '{name}' has no value.", "key");
         }
 
+        if (value.BOOL || value.NULL)
+        {
+            throw InvalidKeyValue(name);
+        }
+
         var typeCount =
             (value.S is null ? 0 : 1) + (value.N is null ? 0 : 1) + (value.B is null ? 0 : 1) +
-            (value.BOOL is null ? 0 : 1) + (value.NULL is null ? 0 : 1) + (value.SS is null ? 0 : 1) +
-            (value.NS is null ? 0 : 1) + (value.BS is null ? 0 : 1) + (value.L is null ? 0 : 1) +
-            (value.M is null ? 0 : 1);
+            (value.SS is { Count: > 0 } ? 1 : 0) + (value.NS is { Count: > 0 } ? 1 : 0) +
+            (value.BS is { Count: > 0 } ? 1 : 0) + (value.L is { Count: > 0 } ? 1 : 0) +
+            (value.M is { Count: > 0 } ? 1 : 0);
 
         if (typeCount != 1)
         {

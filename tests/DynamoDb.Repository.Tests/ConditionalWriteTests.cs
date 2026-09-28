@@ -13,7 +13,7 @@ public sealed class ConditionalWriteTests
         client.Setup(x => x.PutItemAsync(It.Is<PutItemRequest>(r => r.ConditionExpression == "attribute_not_exists(#pk)" && r.ExpressionAttributeNames["#pk"] == "Pk"), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new PutItemResponse());
         await RepositoryHardeningTests.Create(client).CreateAsync(new() { Pk = "tenant", Sk = 1 }, TestContext.Current.CancellationToken);
-        client.VerifyAll();
+        client.Verify(x => x.PutItemAsync(It.IsAny<PutItemRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

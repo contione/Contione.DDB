@@ -1,8 +1,10 @@
 # .NET 10 DynamoDB Fluent Repository
 
-面向 .NET 10 / AWS SDK v4 的 DynamoDB 通用仓储。一个类库项目、一个 NuGet 包；使用官方 DataModel 映射，提供不可变查询、条件写入、局部更新与分页。账户 API 是用法示例。
+面向 .NET 10 / AWS SDK v3 的 DynamoDB 通用仓储。一个类库项目、一个 NuGet 包；使用官方 DataModel 映射，提供不可变查询、条件写入、局部更新与分页。账户 API 是用法示例。
 
-## 3.0 升级说明
+## 3.1 升级说明
+
+当前锁定 `AWSSDK.DynamoDBv2 3.7.406.23` 和 `AWSSDK.Extensions.NETCore.Setup 3.7.400`。AWS SDK v3 没有 v4 的 `DynamoDBContextBuilder`，仓储使用官方的 `DynamoDBContext(IAmazonDynamoDB, DynamoDBContextConfig)` 构造方式；官方 DataModel Attribute、`IPropertyConverter` 和查询能力保持可用。
 
 - 合并为 `DynamoDb.Repository` 一个项目和命名空间，仅发布 `Professional.DynamoDb.Repository` 包。实现类型为 `DynamoDbRepository<TEntity>`。
 - 删除自定义映射 Attribute，实体直接使用 `Amazon.DynamoDBv2.DataModel` 下的官方特性。

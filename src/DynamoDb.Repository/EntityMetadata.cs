@@ -31,7 +31,7 @@ internal sealed class EntityMetadata
         var table = entityType.GetCustomAttribute<DynamoDBTableAttribute>()
             ?? throw new InvalidOperationException($"Entity '{entityType.Name}' must declare DynamoDBTableAttribute.");
         TableName = table.TableName;
-        Conversion = table.Conversion == ConversionSchema.V1 ? DynamoDBEntryConversion.V1 : DynamoDBEntryConversion.V2;
+        Conversion = DynamoDBEntryConversion.V2;
         Properties = entityType.GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .Where(static property => property.GetMethod is { IsPublic: true } &&
                 property.GetIndexParameters().Length == 0 && !property.IsDefined(typeof(DynamoDBIgnoreAttribute)))

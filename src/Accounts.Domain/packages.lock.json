@@ -4,17 +4,17 @@
     "net10.0": {
       "AWSSDK.DynamoDBv2": {
         "type": "Direct",
-        "requested": "[4.0.102.1, )",
-        "resolved": "4.0.102.1",
-        "contentHash": "ZxvRoZcMbLeqGm9B4TsYHT6B6PsnIwve+kckPgb2IPuNzPEXzIRpUIlyGuSQg37NFPgkh6/3m4/QD5wkkHFdSg==",
+        "requested": "[3.7.406.23, )",
+        "resolved": "3.7.406.23",
+        "contentHash": "GcdKaYup6RMzrvVPXm2o1ABqxAsidaNSm+AjtErxkzsURtG2a7Ok6Rf69ytz19Rj1ezNlyccOvCy/N6mcN92dA==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.100.9, 5.0.0)"
+          "AWSSDK.Core": "[3.7.402.41, 4.0.0)"
         }
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.100.9",
-        "contentHash": "OPYy41jZjXwxxcYRotaq24HDrwUnVtBB/mvg1IwB9D1ICXAtHqMa1sp2hpmlVJCZwjlcrPcTCJIejInvV1vp5g=="
+        "resolved": "3.7.402.41",
+        "contentHash": "JFPLQRkfvJXWkBhgCewaKLS8YumCMN6xXjwkk6C2m7ZbjM4OejwJRSDr8UviFczmahJ9x55/2sbkDP6XX9f/Xw=="
       }
     }
   }

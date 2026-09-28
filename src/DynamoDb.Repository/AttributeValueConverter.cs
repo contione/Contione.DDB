@@ -27,12 +27,6 @@ internal static class AttributeValueConverter
         else if (property?.Converter is { } converter) entry = converter.ToEntry(value);
         else
         {
-            if (property?.Mapping is { StoreAsEpochLong: true })
-            {
-                if (value is not DateTime date) throw new ArgumentException("StoreAsEpoch requires a DateTime property.", nameof(value));
-                var seconds = new DateTimeOffset(date.ToUniversalTime()).ToUnixTimeSeconds();
-                value = seconds;
-            }
             try
             {
                 entry = conversion.ConvertToEntry(value.GetType(), value);

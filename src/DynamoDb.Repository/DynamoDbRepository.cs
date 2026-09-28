@@ -170,7 +170,7 @@ public sealed partial class DynamoDbRepository<TEntity> : IDynamoDbRepository<TE
                 ScanIndexForward = !state.Descending,
                 Select = countOnly ? Select.COUNT : null,
             }, cancellationToken).ConfigureAwait(false);
-            result = new(response.Items, response.LastEvaluatedKey, response.Count ?? 0, response.ScannedCount ?? 0);
+            result = new(response.Items, response.LastEvaluatedKey, response.Count, response.ScannedCount);
         }
         else
         {
@@ -186,7 +186,7 @@ public sealed partial class DynamoDbRepository<TEntity> : IDynamoDbRepository<TE
                 ConsistentRead = state.ConsistentRead,
                 Select = countOnly ? Select.COUNT : null,
             }, cancellationToken).ConfigureAwait(false);
-            result = new(response.Items, response.LastEvaluatedKey, response.Count ?? 0, response.ScannedCount ?? 0);
+            result = new(response.Items, response.LastEvaluatedKey, response.Count, response.ScannedCount);
         }
         budget.Record(result.ScannedCount);
         return result;

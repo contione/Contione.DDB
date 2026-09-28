@@ -11,21 +11,20 @@ internal sealed class EntityMapper<TEntity> : IDisposable where TEntity : class
 
     public EntityMapper(IAmazonDynamoDB client)
     {
-        Context = new DynamoDBContextBuilder().WithDynamoDBClient(() => client)
-            .ConfigureContext(config =>
-            {
-                config.DisableFetchingTableMetadata = true;
-                config.Conversion = _metadata.Conversion;
-                config.IsEmptyStringValueEnabled = true;
-                config.RetrieveDateTimeInUtc = true;
-            }).Build();
+        Context = new DynamoDBContext(client, new DynamoDBContextConfig
+        {
+            DisableFetchingTableMetadata = true,
+            Conversion = _metadata.Conversion,
+            IsEmptyStringValueEnabled = true,
+            RetrieveDateTimeInUtc = true,
+        });
     }
 
     public IDynamoDBContext Context { get; }
 
     public Dictionary<string, AttributeValue> ToMap(TEntity entity)
     {
-        var map = Context.GetTargetTable<TEntity>().ToAttributeMap(Context.ToDocument(entity));
+        var map = Context.ToDocument(entity).ToAttributeMap(_metadata.Conversion, isEmptyStringValueEnabled: true);
         foreach (var property in _metadata.Properties.Where(static property => property.IsPrimaryKey || property.IsIndexKey))
         {
             map.TryGetValue(property.AttributeName, out var value);
@@ -40,7 +39,7 @@ internal sealed class EntityMapper<TEntity> : IDisposable where TEntity : class
     }
 
     public TEntity FromMap(Dictionary<string, AttributeValue> map) =>
-        Context.FromDocument<TEntity>(Context.GetTargetTable<TEntity>().FromAttributeMap(map));
+        Context.FromDocument<TEntity>(Document.FromAttributeMap(map));
 
     public void Dispose() => Context.Dispose();
 }
