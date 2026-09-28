@@ -1,6 +1,6 @@
 using Accounts.Application;
 using Amazon.DynamoDBv2;
-using DynamoDb.Repository.Aws;
+using DynamoDb.Repository;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 

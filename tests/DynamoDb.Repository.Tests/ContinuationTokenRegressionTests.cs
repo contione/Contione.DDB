@@ -1,6 +1,6 @@
 using System.Text;
 using Amazon.DynamoDBv2.Model;
-using DynamoDb.Repository.Aws;
+using DynamoDb.Repository;
 
 namespace DynamoDb.Repository.Tests;
 

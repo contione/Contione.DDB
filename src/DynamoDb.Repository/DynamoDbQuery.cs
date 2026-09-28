@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
 
-namespace DynamoDb.Repository.Aws;
+namespace DynamoDb.Repository;
 
 internal sealed record QueryState<TEntity>(
     IReadOnlyList<Expression<Func<TEntity, bool>>> Predicates,
@@ -16,7 +16,7 @@ internal sealed record QueryState<TEntity>(
 }
 
 internal sealed class DynamoDbQuery<TEntity>(
-    AwsDynamoDbRepository<TEntity> repository,
+    DynamoDbRepository<TEntity> repository,
     QueryState<TEntity>? state = null) : IDynamoDbQuery<TEntity>
     where TEntity : class
 {

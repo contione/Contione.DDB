@@ -2,9 +2,10 @@ using System.Globalization;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
+using Amazon.DynamoDBv2.DataModel;
 using Amazon.DynamoDBv2.Model;
 
-namespace DynamoDb.Repository.Aws;
+namespace DynamoDb.Repository;
 
 internal sealed record QueryPlan(
     bool IsQuery,
@@ -17,10 +18,12 @@ internal static class QueryPlanner
 {
     public static QueryPlan Create<TEntity>(
         IReadOnlyList<Expression<Func<TEntity, bool>>> predicates,
-        string? indexName) where TEntity : class
+        string? indexName,
+        IDynamoDBContext? context = null) where TEntity : class
     {
         var metadata = EntityMetadata.For<TEntity>();
         var schema = metadata.GetKeySchema(indexName);
+        var translator = new ExpressionTranslator(metadata, context);
         var terms = predicates
             .SelectMany(predicate => FlattenAnd(predicate.Body)
                 .Select(expression => new QueryTerm(predicate.Parameters.Single(), expression)))
@@ -36,11 +39,10 @@ internal static class QueryPlanner
 
         if (partitionConditions.Length == 0)
         {
-            var scanTranslator = new ExpressionTranslator(metadata);
             var filters = terms
-                .Select(term => scanTranslator.Translate(term.Expression).Expression)
+                .Select(term => translator.Translate(term.Expression).Expression)
                 .ToArray();
-            var translatedScan = scanTranslator.Snapshot();
+            var translatedScan = translator.Snapshot();
             return new QueryPlan(
                 false,
                 null,
@@ -55,10 +57,14 @@ internal static class QueryPlanner
 
         if (partitionConditions.Length > 0)
         {
-            var partitionValue = ToKeyValue(partitionConditions[0].ValueExpression!);
+            var partitionValue = ToKeyValue(
+                partitionConditions[0],
+                schema.PartitionKey,
+                translator,
+                validateKey: true);
             foreach (var condition in partitionConditions.Skip(1))
             {
-                var value = ToKeyValue(condition.ValueExpression!);
+                var value = ToKeyValue(condition, schema.PartitionKey, translator, validateKey: true);
                 if (!AreEquivalent(partitionValue, value))
                 {
                     throw new NotSupportedException(
@@ -106,7 +112,11 @@ internal static class QueryPlanner
                 sortCondition = sortConditions[0];
                 if (sortCondition.ValueExpression is not null)
                 {
-                    _ = ToKeyValue(sortCondition.ValueExpression);
+                    _ = ToKeyValue(
+                        sortCondition,
+                        sortKey,
+                        translator,
+                        validateKey: sortCondition.Operator is not null);
                 }
             }
             else if (sortConditions.Count == 2 &&
@@ -121,8 +131,8 @@ internal static class QueryPlanner
                 upperBound = sortConditions.Single(static condition =>
                     condition.Operator == ExpressionType.LessThanOrEqual);
 
-                var lowerValue = ToKeyValue(lowerBound.ValueExpression!);
-                var upperValue = ToKeyValue(upperBound.ValueExpression!);
+                var lowerValue = ToKeyValue(lowerBound, sortKey, translator, validateKey: true);
+                var upperValue = ToKeyValue(upperBound, sortKey, translator, validateKey: true);
                 var comparison = CompareKeyValues(lowerValue, upperValue);
                 if (comparison > 0)
                 {
@@ -152,7 +162,6 @@ internal static class QueryPlanner
                 "DynamoDB key attributes cannot appear in a filter expression.");
         }
 
-        var translator = new ExpressionTranslator(metadata);
         var keyExpressions = new List<string>(2);
         if (partitionConditions.Length > 0)
         {
@@ -164,6 +173,7 @@ internal static class QueryPlanner
             keyExpressions.Add(translator.TranslateBetween(
                 lowerBound.KeyExpression,
                 lowerBound.ValueExpression!,
+                upperBound.KeyExpression,
                 upperBound.ValueExpression!).Expression);
         }
         else if (sortCondition is not null)
@@ -270,9 +280,23 @@ internal static class QueryPlanner
         return visitor.Found;
     }
 
-    private static AttributeValue ToKeyValue(Expression expression)
+    private static AttributeValue ToKeyValue(
+        KeyCondition condition,
+        PropertyMetadata property,
+        ExpressionTranslator translator,
+        bool validateKey)
     {
-        var value = ExpressionTranslator.ToAttributeValue(expression);
+        var value = translator.TranslateValue(
+            condition.ValueExpression!,
+            property,
+            condition.KeyExpression,
+            condition.Operator ?? ExpressionType.Equal);
+        if (validateKey)
+        {
+            AttributeValueConverter.ValidateKey(value, property);
+            return value;
+        }
+
         if (value.S is null && value.N is null && value.B is null)
         {
             throw new NotSupportedException(

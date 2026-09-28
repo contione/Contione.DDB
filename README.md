@@ -1,8 +1,13 @@
 # .NET 10 DynamoDB Fluent Repository
 
-面向 .NET 10 / AWS SDK v4 的 DynamoDB 通用仓储。提供不可变查询、条件写入、局部更新、映射与分页；账户 API 是用法示例。
+面向 .NET 10 / AWS SDK v4 的 DynamoDB 通用仓储。一个类库项目、一个 NuGet 包；使用官方 DataModel 映射，提供不可变查询、条件写入、局部更新与分页。账户 API 是用法示例。
 
-## 2.0 升级说明
+## 3.0 升级说明
+
+- 合并为 `DynamoDb.Repository` 一个项目和命名空间，仅发布 `Professional.DynamoDb.Repository` 包。实现类型为 `DynamoDbRepository<TEntity>`。
+- 删除自定义映射 Attribute，实体直接使用 `Amazon.DynamoDBv2.DataModel` 下的官方特性。
+- 实体读写交给 `DynamoDBContext`，默认使用 SDK V2 转换规则；查询和局部更新也遵循属性上的 `IPropertyConverter`。
+- 自定义实体需要同步迁移注解；直接依赖实体映射的项目引用 `AWSSDK.DynamoDBv2`。集合按 SDK 支持的 `List<T>`、数组、`HashSet<T>` 等声明，不再额外实现 `IReadOnlyList<T>` 映射。
 
 - 默认拒绝全表/索引扫描，需要在查询上显式调用 `AllowScan()`，或配置 `AllowScan = true`。
 - 每次终结操作默认最多发出 100 次 SDK 请求、评估 10,000 条记录；达到上限且操作仍未完成时抛 `DynamoDbQueryLimitExceededException`，不会把不完整结果伪装成完整结果。
@@ -15,9 +20,8 @@
 
 ```text
 src/
-  DynamoDb.Repository/          仓储接口、分页模型、映射特性
-  DynamoDb.Repository.Aws/      AWS SDK v4 实现、表达式翻译、分页令牌
-  Accounts.Domain/              不依赖 AWS SDK 的领域实体
+  DynamoDb.Repository/          仓储接口与实现、查询、更新、分页
+  Accounts.Domain/              使用官方 DataModel 特性的示例实体
   Accounts.Application/         用例和链式查询示例
   Accounts.Infrastructure/      AWS 与仓储依赖注入
   Accounts.Api/                 Minimal API
@@ -27,7 +31,7 @@ infra/
   template.yaml                 DynamoDB CloudFormation 模板
 ```
 
-依赖方向为 `Api -> Infrastructure -> Application -> Domain`，仓储抽象与 AWS 实现分开。领域层只使用仓储包自己的映射特性，不依赖 AWS SDK。
+账户示例依赖方向为 `Api -> Infrastructure -> Application -> Domain`。仓储自身不再拆分抽象包与实现包，也不维护独立映射协议。
 
 ## 链式查询
 
@@ -72,22 +76,28 @@ DynamoDB 不支持任意字段服务器端排序、关系导航、联表或完�
 ## 实体映射
 
 ```csharp
-[DynamoDbTable("accounts")]
+using Amazon.DynamoDBv2.DataModel;
+
+[DynamoDBTable("accounts")]
 public sealed class Account
 {
-    [DynamoDbPartitionKey]
-    [DynamoDbProperty("tenant_id")]
+    [DynamoDBHashKey("tenant_id")]
     public required string TenantId { get; init; }
 
-    [DynamoDbSortKey]
-    [DynamoDbProperty("account_id")]
+    [DynamoDBRangeKey("account_id")]
     public required string AccountId { get; init; }
 }
 ```
 
-还可使用 `DynamoDbIndexPartitionKey`、`DynamoDbIndexSortKey` 和 `DynamoDbIgnore`。当前索引特性表示 GSI，不支持 GSI 强一致读取。实体元数据和属性 getter 会缓存，查询翻译不执行含实体参数的表达式。
+属性重命名使用 `DynamoDBProperty`，忽略属性使用 `DynamoDBIgnore`。GSI 使用 `DynamoDBGlobalSecondaryIndexHashKey` / `DynamoDBGlobalSecondaryIndexRangeKey`；LSI 使用 `DynamoDBLocalSecondaryIndexRangeKey`，允许强一致读取。索引特性可声明多个索引名。
 
-枚举统一存储为字符串名称，查询比较和读回使用同一表示；重命名枚举成员需要数据迁移。可空索引键为 null 时省略该属性，以支持稀疏索引。支持 `JsonPropertyName`；忽略数据库属性请使用 `DynamoDbIgnore`。公开索引器不参与映射。
+SDK 默认将枚举写为数字。已有字符串枚举数据应使用官方扩展点 `[DynamoDBProperty(typeof(YourEnumConverter))]` 明确保持字符串格式，或者先迁移数据；仅能读回旧值并不意味着数字查询会匹配旧字符串值。查询、条件写入和局部更新使用同一个属性转换规则。
+
+`DateTimeOffset` 由示例中的 `UtcDateTimeOffsetConverter` 保持原有 UTC ISO 8601 格式；它实现 SDK 的 `IPropertyConverter`，没有另建转换协议。`DateTime` 可使用官方 `StoreAsEpochLong`，不支持已废弃的 `StoreAsEpoch`。可空索引键省略 null，以支持稀疏索引。JSON 特性不参与数据库映射。
+
+实体序列化调用官方 `ToDocument` / `FromDocument` 和目标表转换，不再经过 JSON 中转。内部只保留查询规划所需的键、索引和属性元数据；禁用隐式 `DescribeTable`，依赖显式注解。
+
+仓储保留整条替换和显式条件写入语义，不会模拟 SDK `SaveAsync` 的自动版本递增。需要 `[DynamoDBVersion]` 自动乐观锁时直接使用 `DynamoDBContext.SaveAsync`；仓储会明确拒绝该特性，避免静默忽略版本检查。
 
 ## 条件写入与局部更新
 
@@ -166,7 +176,6 @@ dotnet test DynamoDbRepository.slnx -c Release
 
 ```powershell
 dotnet pack src/DynamoDb.Repository/DynamoDb.Repository.csproj -c Release -o artifacts
-dotnet pack src/DynamoDb.Repository.Aws/DynamoDb.Repository.Aws.csproj -c Release -o artifacts
 ```
 
 分页令牌采用带版本和查询上下文指纹的 JSON + Base64Url，保留字符串、数字、二进制键类型。上下文校验用于防止误用游标，不是密码学签名，也不是授权机制。需要拒绝客户端篡改的 API 应在边界对整个令牌签名或加密；不应将令牌内容作为租户或权限依据。

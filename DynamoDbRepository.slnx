@@ -1,7 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DynamoDb.Repository/DynamoDb.Repository.csproj" />
-    <Project Path="src/DynamoDb.Repository.Aws/DynamoDb.Repository.Aws.csproj" />
     <Project Path="src/Accounts.Domain/Accounts.Domain.csproj" />
     <Project Path="src/Accounts.Application/Accounts.Application.csproj" />
     <Project Path="src/Accounts.Infrastructure/Accounts.Infrastructure.csproj" />

@@ -1,35 +1,31 @@
-using DynamoDb.Repository;
+using Amazon.DynamoDBv2.DataModel;
 
 namespace DynamoDb.Repository.Tests;
 
-[DynamoDbTable("test-entities")]
+[DynamoDBTable("test-entities")]
 public sealed class TestEntity
 {
-    [DynamoDbPartitionKey]
-    [DynamoDbProperty("pk")]
+    [DynamoDBHashKey("pk")]
     public required string TenantId { get; init; }
 
-    [DynamoDbSortKey]
-    [DynamoDbProperty("sk")]
+    [DynamoDBRangeKey("sk")]
     public required string Id { get; init; }
 
-    [DynamoDbProperty("display_name")]
+    [DynamoDBProperty("display_name")]
     public required string Name { get; init; }
 
-    [DynamoDbProperty("status")]
-    [DynamoDbIndexPartitionKey("status-created-index")]
+    [DynamoDBGlobalSecondaryIndexHashKey("status-created-index", AttributeName = "status")]
     public int Status { get; init; }
 
-    [DynamoDbProperty("created_at")]
-    [DynamoDbIndexSortKey("status-created-index")]
+    [DynamoDBGlobalSecondaryIndexRangeKey("status-created-index", AttributeName = "created_at")]
     public long CreatedAt { get; init; }
 
-    [DynamoDbProperty("active")]
+    [DynamoDBProperty("active")]
     public bool Active { get; init; }
 
-    [DynamoDbProperty("tags")]
-    public IReadOnlyList<string> Tags { get; init; } = [];
+    [DynamoDBProperty("tags")]
+    public List<string> Tags { get; init; } = [];
 
-    [DynamoDbIgnore]
+    [DynamoDBIgnore]
     public string Ignored => "ignored";
 }

@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
+using Amazon.DynamoDBv2.DataModel;
 using DynamoDb.Repository;
-using DynamoDb.Repository.Aws;
 
 namespace DynamoDb.Repository.Tests;
 
@@ -145,23 +145,23 @@ public sealed class QueryPlannerRegressionTests
         Assert.Contains("Ordering an enum", exception.Message, StringComparison.Ordinal);
     }
 
-    [DynamoDbTable("numeric-sort-entities")]
+    [DynamoDBTable("numeric-sort-entities")]
     private sealed class NumericSortEntity
     {
-        [DynamoDbPartitionKey]
+        [DynamoDBHashKey]
         public string TenantId { get; init; } = string.Empty;
 
-        [DynamoDbSortKey]
+        [DynamoDBRangeKey]
         public int Sequence { get; init; }
     }
 
-    [DynamoDbTable("enum-sort-entities")]
+    [DynamoDBTable("enum-sort-entities")]
     private sealed class EnumSortEntity
     {
-        [DynamoDbPartitionKey]
+        [DynamoDBHashKey]
         public string TenantId { get; init; } = string.Empty;
 
-        [DynamoDbSortKey]
+        [DynamoDBRangeKey]
         public SortStatus Status { get; init; }
     }
 

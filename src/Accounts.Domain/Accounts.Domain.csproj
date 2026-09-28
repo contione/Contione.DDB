@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
-    <ProjectReference Include="../DynamoDb.Repository/DynamoDb.Repository.csproj" />
+    <PackageReference Include="AWSSDK.DynamoDBv2" />
   </ItemGroup>
 </Project>

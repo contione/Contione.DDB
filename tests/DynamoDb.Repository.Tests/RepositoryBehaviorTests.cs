@@ -1,6 +1,6 @@
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
-using DynamoDb.Repository.Aws;
+using DynamoDb.Repository;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -211,7 +211,7 @@ public sealed class RepositoryBehaviorTests
             It.IsAny<QueryRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    private static AwsDynamoDbRepository<TestEntity> CreateRepository(
+    private static DynamoDbRepository<TestEntity> CreateRepository(
         Mock<IAmazonDynamoDB> client) => new(
         client.Object,
         Options.Create(new DynamoDbRepositoryOptions

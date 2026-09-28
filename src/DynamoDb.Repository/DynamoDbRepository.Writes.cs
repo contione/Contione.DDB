@@ -1,10 +1,9 @@
 using System.Linq.Expressions;
-using System.Reflection;
 using Amazon.DynamoDBv2.Model;
 
-namespace DynamoDb.Repository.Aws;
+namespace DynamoDb.Repository;
 
-public sealed partial class AwsDynamoDbRepository<TEntity>
+public sealed partial class DynamoDbRepository<TEntity>
 {
     /// <summary>Creates or fully replaces an item. Use CreateAsync or a condition to prevent overwrites.</summary>
     public Task PutAsync(TEntity entity, CancellationToken cancellationToken = default) =>
@@ -99,15 +98,14 @@ public sealed partial class AwsDynamoDbRepository<TEntity>
                 removals.Add(name);
                 continue;
             }
-            if (property.Property.IsDefined(typeof(DynamoDbIndexPartitionKeyAttribute)) ||
-                property.Property.IsDefined(typeof(DynamoDbIndexSortKeyAttribute)))
+            if (property.IsIndexKey)
             {
                 if (change.Value is null) throw new ArgumentException("Use Remove to clear an index key.", nameof(update));
                 values[$":u{changed.Count}"] = ConvertKey(change.Value, property);
             }
             else
             {
-                values[$":u{changed.Count}"] = AttributeValueConverter.FromObject(change.Value);
+                values[$":u{changed.Count}"] = AttributeValueConverter.FromObject(change.Value, property, _metadata.Conversion, _mapper.Context);
             }
             sets.Add($"{name} = :u{changed.Count}");
         }
@@ -131,7 +129,7 @@ public sealed partial class AwsDynamoDbRepository<TEntity>
     }
 
     private TranslatedExpression? TranslateCondition(Expression<Func<TEntity, bool>>? condition) =>
-        condition is null ? null : new ExpressionTranslator(_metadata).Translate(condition.Body);
+        condition is null ? null : new ExpressionTranslator(_metadata, _mapper.Context).Translate(condition.Body);
 
     private static async Task ExecuteWriteAsync(Func<Task> write)
     {

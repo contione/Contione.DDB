@@ -1,4 +1,4 @@
-namespace DynamoDb.Repository.Aws;
+namespace DynamoDb.Repository;
 
 public sealed class DynamoDbRepositoryOptions
 {

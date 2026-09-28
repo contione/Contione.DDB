@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-namespace DynamoDb.Repository.Aws;
+namespace DynamoDb.Repository;
 
 public static class ServiceCollectionExtensions
 {
@@ -21,7 +21,7 @@ public static class ServiceCollectionExtensions
             options.Configure(configure);
         }
 
-        services.TryAddSingleton(typeof(IDynamoDbRepository<>), typeof(AwsDynamoDbRepository<>));
+        services.TryAddSingleton(typeof(IDynamoDbRepository<>), typeof(DynamoDbRepository<>));
         return services;
     }
 }

@@ -1,7 +1,8 @@
 using System.Text.Json.Serialization;
 using Amazon.DynamoDBv2;
+using Amazon.DynamoDBv2.DataModel;
 using Amazon.DynamoDBv2.Model;
-using DynamoDb.Repository.Aws;
+using DynamoDb.Repository;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -131,11 +132,14 @@ public sealed class RepositoryHardeningTests
     }
 
     [Fact]
-    public void Mapper_round_trips_enum_binary_and_json_property_names()
+    public void Mapper_round_trips_official_attributes_and_legacy_enum_converter()
     {
-        var mapper = new EntityMapper<HardeningEntity>();
+        using var mapper = new EntityMapper<HardeningEntity>(Mock.Of<IAmazonDynamoDB>());
         var entity = new HardeningEntity { Pk = "tenant", Sk = 1, State = HardeningState.Active, Name = "Ada", Data = [1, 2, 3] };
-        var restored = mapper.FromMap(mapper.ToMap(entity));
+        var map = mapper.ToMap(entity);
+        Assert.Contains("display_name", map.Keys);
+        Assert.DoesNotContain("api_name", map.Keys);
+        var restored = mapper.FromMap(map);
         Assert.Equal(entity.State, restored.State);
         Assert.Equal(entity.Name, restored.Name);
         Assert.Equal(entity.Data, restored.Data);
@@ -144,7 +148,8 @@ public sealed class RepositoryHardeningTests
     [Fact]
     public void Null_secondary_key_is_omitted_for_sparse_indexes()
     {
-        var map = new EntityMapper<HardeningEntity>().ToMap(new() { Pk = "tenant", Sk = 1 });
+        using var mapper = new EntityMapper<HardeningEntity>(Mock.Of<IAmazonDynamoDB>());
+        var map = mapper.ToMap(new() { Pk = "tenant", Sk = 1 });
         Assert.DoesNotContain("IndexKey", map.Keys);
     }
 
@@ -153,7 +158,8 @@ public sealed class RepositoryHardeningTests
     {
         var map = Map(1);
         map["Blobs"] = new AttributeValue { BS = [new MemoryStream([1, 2]), new MemoryStream([3])] };
-        var entity = new EntityMapper<HardeningEntity>().FromMap(map);
+        using var mapper = new EntityMapper<HardeningEntity>(Mock.Of<IAmazonDynamoDB>());
+        var entity = mapper.FromMap(map);
         Assert.Equal(2, entity.Blobs.Count);
         Assert.Equal(new byte[] { 1, 2 }, entity.Blobs[0]);
     }
@@ -169,7 +175,8 @@ public sealed class RepositoryHardeningTests
     [InlineData("")]
     public void Missing_primary_keys_are_rejected(string? key)
     {
-        Assert.Throws<ArgumentException>(() => new EntityMapper<HardeningEntity>().ToMap(new() { Pk = key!, Sk = 1 }));
+        using var mapper = new EntityMapper<HardeningEntity>(Mock.Of<IAmazonDynamoDB>());
+        Assert.Throws<ArgumentException>(() => mapper.ToMap(new() { Pk = key!, Sk = 1 }));
     }
 
     [Fact]
@@ -181,12 +188,15 @@ public sealed class RepositoryHardeningTests
     [Fact]
     public void Key_length_is_validated_in_utf8_bytes()
     {
-        var mapper = new EntityMapper<HardeningEntity>();
+        using var mapper = new EntityMapper<HardeningEntity>(Mock.Of<IAmazonDynamoDB>());
         Assert.Throws<ArgumentException>(() => mapper.ToMap(new() { Pk = new string('界', 683), Sk = 1 }));
     }
 
-    internal static AwsDynamoDbRepository<HardeningEntity> Create(Mock<IAmazonDynamoDB> client, DynamoDbRepositoryOptions? options = null) =>
-        new(client.Object, Options.Create(options ?? new()));
+    internal static DynamoDbRepository<HardeningEntity> Create(Mock<IAmazonDynamoDB> client, DynamoDbRepositoryOptions? options = null)
+    {
+        client.SetupGet(static instance => instance.Config).Returns(new AmazonDynamoDBConfig { RegionEndpoint = Amazon.RegionEndpoint.USEast1 });
+        return new(client.Object, Options.Create(options ?? new()));
+    }
 
     internal static Dictionary<string, AttributeValue> Key(int sortKey) => new()
     {
@@ -204,16 +214,18 @@ public sealed class RepositoryHardeningTests
 
 public enum HardeningState { Inactive, Active }
 
-[DynamoDbTable("hardening")]
+[DynamoDBTable("hardening")]
 public sealed class HardeningEntity
 {
-    [DynamoDbPartitionKey] public string Pk { get; init; } = string.Empty;
-    [DynamoDbSortKey] public int Sk { get; init; }
+    [DynamoDBHashKey] public string Pk { get; init; } = string.Empty;
+    [DynamoDBRangeKey] public int Sk { get; init; }
+    [DynamoDBProperty(typeof(EnumNameConverter<HardeningState>))]
     public HardeningState State { get; init; }
     public bool Enabled { get; init; }
-    [JsonPropertyName("name")] public string? Name { get; init; }
+    [JsonPropertyName("api_name"), DynamoDBProperty("display_name")] public string? Name { get; init; }
     public byte[]? Data { get; init; }
-    public IReadOnlyList<byte[]> Blobs { get; init; } = [];
-    [DynamoDbIndexPartitionKey("sparse-index")] public string? IndexKey { get; init; }
+    public List<byte[]> Blobs { get; init; } = [];
+    [DynamoDBGlobalSecondaryIndexHashKey("sparse-index")] public string? IndexKey { get; init; }
+    [DynamoDBIgnore]
     public string this[int index] => index.ToString(System.Globalization.CultureInfo.InvariantCulture);
 }

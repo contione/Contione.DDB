@@ -1,16 +1,17 @@
 using System.Collections;
 using System.Linq.Expressions;
 using System.Reflection;
+using Amazon.DynamoDBv2.DataModel;
 using Amazon.DynamoDBv2.Model;
 
-namespace DynamoDb.Repository.Aws;
+namespace DynamoDb.Repository;
 
 internal sealed record TranslatedExpression(
     string Expression,
     Dictionary<string, string> Names,
     Dictionary<string, AttributeValue> Values);
 
-internal sealed class ExpressionTranslator(EntityMetadata metadata)
+internal sealed class ExpressionTranslator(EntityMetadata metadata, IDynamoDBContext? context = null)
 {
     private readonly Dictionary<string, string> _nameTokens = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _names = new(StringComparer.Ordinal);
@@ -35,7 +36,7 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
                 : throw Unsupported(unary),
         MethodCallExpression call => VisitMethodCall(call),
         MemberExpression member when TryGetMappedProperty(member, out var property) =>
-            $"{AddName(property.AttributeName)} = {AddValue(true)}",
+            $"{AddName(property.AttributeName)} = {AddValue(true, property)}",
         ConstantExpression { Type: var type, Value: bool value } when type == typeof(bool) =>
             value ? AddAlwaysTrue() : AddAlwaysFalse(),
         _ => throw Unsupported(expression),
@@ -46,13 +47,13 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
         if (TryGetMappedProperty(binary.Left, out var leftProperty))
         {
             return $"{AddName(leftProperty.AttributeName)} {ComparisonOperator(binary.NodeType)} " +
-                AddValue(EvaluateComparisonValue(binary.Left, binary.Right, leftProperty, binary.NodeType));
+                AddValue(EvaluateComparisonValue(binary.Left, binary.Right, leftProperty, binary.NodeType), leftProperty);
         }
 
         if (TryGetMappedProperty(binary.Right, out var rightProperty))
         {
             return $"{AddName(rightProperty.AttributeName)} {ComparisonOperator(Reverse(binary.NodeType))} " +
-                AddValue(EvaluateComparisonValue(binary.Right, binary.Left, rightProperty, binary.NodeType));
+                AddValue(EvaluateComparisonValue(binary.Right, binary.Left, rightProperty, binary.NodeType), rightProperty);
         }
 
         throw Unsupported(binary);
@@ -72,7 +73,8 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
                 _ => throw Unsupported(call),
             };
 
-            return $"{function}({AddName(stringProperty.AttributeName)}, {AddValue(Evaluate(call.Arguments[0]))})";
+            return $"{function}({AddName(stringProperty.AttributeName)}, " +
+                $"{AddValue(Evaluate(call.Arguments[0]), stringProperty)})";
         }
 
         if (call.Method.Name == nameof(Enumerable.Contains))
@@ -115,13 +117,20 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
                     return AddAlwaysFalse();
                 }
 
-                var tokens = items.Select(AddValue).ToArray();
+                var tokens = items.Select(value => AddValue(value, itemProperty)).ToArray();
                 return $"{AddName(itemProperty.AttributeName)} IN ({string.Join(", ", tokens)})";
             }
 
             if (TryGetMappedProperty(collection, out var collectionProperty))
             {
-                return $"contains({AddName(collectionProperty.AttributeName)}, {AddValue(Evaluate(item))})";
+                if (collectionProperty.Converter is not null)
+                {
+                    throw new NotSupportedException(
+                        "Contains cannot infer element values for a collection property with a custom converter.");
+                }
+
+                return $"contains({AddName(collectionProperty.AttributeName)}, " +
+                    $"{AddValue(Evaluate(item))})";
             }
         }
 
@@ -158,32 +167,44 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
     }
 
     internal TranslatedExpression TranslateBetween(
-        Expression propertyExpression,
+        Expression lowerPropertyExpression,
         Expression lowerBound,
+        Expression upperPropertyExpression,
         Expression upperBound)
     {
-        if (!TryGetMappedProperty(propertyExpression, out var property))
+        if (!TryGetMappedProperty(lowerPropertyExpression, out var property) ||
+            !TryGetMappedProperty(upperPropertyExpression, out var upperProperty) ||
+            property.Property != upperProperty.Property)
         {
-            throw Unsupported(propertyExpression);
+            throw Unsupported(lowerPropertyExpression);
         }
 
         var lowerValue = EvaluateComparisonValue(
-            propertyExpression,
+            lowerPropertyExpression,
             lowerBound,
             property,
             ExpressionType.GreaterThanOrEqual);
         var upperValue = EvaluateComparisonValue(
-            propertyExpression,
+            upperPropertyExpression,
             upperBound,
             property,
             ExpressionType.LessThanOrEqual);
         var expression =
-            $"{AddName(property.AttributeName)} BETWEEN {AddValue(lowerValue)} AND {AddValue(upperValue)}";
+            $"{AddName(property.AttributeName)} BETWEEN " +
+            $"{AddValue(lowerValue, property)} AND {AddValue(upperValue, property)}";
         return new TranslatedExpression(expression, _names, _values);
     }
 
-    internal static AttributeValue ToAttributeValue(Expression expression) =>
-        AttributeValueConverter.FromObject(Evaluate(expression));
+    internal AttributeValue TranslateValue(
+        Expression valueExpression,
+        PropertyMetadata property,
+        Expression propertyExpression,
+        ExpressionType comparison) =>
+        AttributeValueConverter.FromObject(
+            EvaluateComparisonValue(propertyExpression, valueExpression, property, comparison),
+            property,
+            metadata.Conversion,
+            context);
 
     internal static bool IsEntityPropertyAccess(
         Expression expression,
@@ -223,10 +244,10 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
         return token;
     }
 
-    private string AddValue(object? value)
+    private string AddValue(object? value, PropertyMetadata? property = null)
     {
         var token = $":v{_valueIndex++}";
-        _values[token] = AttributeValueConverter.FromObject(value);
+        _values[token] = AttributeValueConverter.FromObject(value, property, metadata.Conversion, context);
         return token;
     }
 
@@ -290,17 +311,46 @@ internal sealed class ExpressionTranslator(EntityMetadata metadata)
             }
 
             var underlyingType = Enum.GetUnderlyingType(propertyType);
-            return Enum.ToObject(
-                propertyType,
-                Convert.ChangeType(value, underlyingType, System.Globalization.CultureInfo.InvariantCulture)!);
+            return Enum.ToObject(propertyType, ConvertExactly(value, underlyingType));
         }
 
         if (propertyType == typeof(char) && comparisonType != propertyType && value is not null)
         {
-            return Convert.ToChar(value, System.Globalization.CultureInfo.InvariantCulture);
+            return ConvertExactly(value, typeof(char));
         }
 
         return value;
+    }
+
+    private static object ConvertExactly(object value, Type destinationType)
+    {
+        object converted;
+        object? original;
+        try
+        {
+            converted = Convert.ChangeType(
+                value,
+                destinationType,
+                System.Globalization.CultureInfo.InvariantCulture)!;
+            original = Convert.ChangeType(
+                converted,
+                value.GetType(),
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch (Exception exception) when (exception is InvalidCastException or FormatException or OverflowException)
+        {
+            throw new NotSupportedException(
+                $"The comparison value cannot be represented as '{destinationType.Name}'.",
+                exception);
+        }
+
+        if (!Equals(value, original))
+        {
+            throw new NotSupportedException(
+                $"The comparison value cannot be represented exactly as '{destinationType.Name}'.");
+        }
+
+        return converted;
     }
 
     private static object? EvaluateCollection(Expression expression) =>

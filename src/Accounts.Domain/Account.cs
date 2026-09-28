@@ -1,30 +1,26 @@
-using DynamoDb.Repository;
+using Amazon.DynamoDBv2.DataModel;
 
 namespace Accounts.Domain;
 
-[DynamoDbTable("accounts")]
+[DynamoDBTable("accounts")]
 public sealed class Account
 {
-    [DynamoDbPartitionKey]
-    [DynamoDbProperty("tenant_id")]
+    [DynamoDBHashKey("tenant_id")]
     public required string TenantId { get; init; }
 
-    [DynamoDbSortKey]
-    [DynamoDbProperty("account_id")]
+    [DynamoDBRangeKey("account_id")]
     public required string AccountId { get; init; }
 
-    [DynamoDbProperty("name")]
+    [DynamoDBProperty("name")]
     public required string Name { get; set; }
 
-    [DynamoDbProperty("status")]
-    [DynamoDbIndexPartitionKey(IndexNames.StatusCreatedAt)]
+    [DynamoDBGlobalSecondaryIndexHashKey(IndexNames.StatusCreatedAt, AttributeName = "status")]
     public int Status { get; set; }
 
-    [DynamoDbProperty("created_at")]
-    [DynamoDbIndexSortKey(IndexNames.StatusCreatedAt)]
+    [DynamoDBGlobalSecondaryIndexRangeKey(IndexNames.StatusCreatedAt, AttributeName = "created_at", Converter = typeof(UtcDateTimeOffsetConverter))]
     public DateTimeOffset CreatedAt { get; init; }
 
-    [DynamoDbProperty("email")]
+    [DynamoDBProperty("email")]
     public string? Email { get; set; }
 }
 

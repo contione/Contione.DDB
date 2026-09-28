@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Amazon.Runtime;
-using DynamoDb.Repository.Aws;
+using DynamoDb.Repository;
 using Microsoft.Extensions.Options;
 
 namespace DynamoDb.Repository.Tests;
@@ -90,9 +90,9 @@ public sealed class DynamoDbLocalTests
         Assert.Equal(12, await repository.Query.AllowScan().CountAsync(cancellation));
     }
 
-    private sealed class LocalDatabase(AmazonDynamoDBClient client, string tableName, AwsDynamoDbRepository<HardeningEntity> repository) : IAsyncDisposable
+    private sealed class LocalDatabase(AmazonDynamoDBClient client, string tableName, DynamoDbRepository<HardeningEntity> repository) : IAsyncDisposable
     {
-        public AwsDynamoDbRepository<HardeningEntity> Repository { get; } = repository;
+        public DynamoDbRepository<HardeningEntity> Repository { get; } = repository;
 
         public static async Task<LocalDatabase> CreateAsync(CancellationToken cancellationToken)
         {

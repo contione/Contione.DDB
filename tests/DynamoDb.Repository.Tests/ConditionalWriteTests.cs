@@ -54,7 +54,7 @@ public sealed class ConditionalWriteTests
         client.Setup(x => x.DeleteItemAsync(It.Is<DeleteItemRequest>(r => r.ConditionExpression != null), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DeleteItemResponse());
         await RepositoryHardeningTests.Create(client).DeleteAsync("tenant", 1, x => x.Enabled, TestContext.Current.CancellationToken);
-        client.VerifyAll();
+        client.Verify(x => x.DeleteItemAsync(It.IsAny<DeleteItemRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

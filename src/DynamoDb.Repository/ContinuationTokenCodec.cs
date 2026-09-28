@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Amazon.DynamoDBv2.Model;
 
-namespace DynamoDb.Repository.Aws;
+namespace DynamoDb.Repository;
 
 internal static class ContinuationTokenCodec
 {

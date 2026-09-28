@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
+using Amazon.DynamoDBv2.DataModel;
 using DynamoDb.Repository;
-using DynamoDb.Repository.Aws;
 
 namespace DynamoDb.Repository.Tests;
 
@@ -192,12 +192,13 @@ public sealed class ExpressionTranslatorTests
         Assert.Contains("at most 100", exception.Message, StringComparison.Ordinal);
     }
 
-    [DynamoDbTable("enum-tests")]
+    [DynamoDBTable("enum-tests")]
     private sealed class EnumEntity
     {
-        [DynamoDbPartitionKey]
+        [DynamoDBHashKey]
         public string TenantId { get; init; } = string.Empty;
 
+        [DynamoDBProperty(typeof(EnumNameConverter<AccountStatus>))]
         public AccountStatus Status { get; init; }
 
         public char Grade { get; init; }

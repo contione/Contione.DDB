@@ -1,5 +1,7 @@
+using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
-using DynamoDb.Repository.Aws;
+using DynamoDb.Repository;
+using Moq;
 
 namespace DynamoDb.Repository.Tests;
 
@@ -8,7 +10,7 @@ public sealed class MappingAndTokenTests
     [Fact]
     public void Entity_mapper_round_trips_entity_and_uses_attribute_names()
     {
-        var mapper = new EntityMapper<TestEntity>();
+        using var mapper = new EntityMapper<TestEntity>(Mock.Of<IAmazonDynamoDB>());
         var entity = CreateEntity();
 
         var map = mapper.ToMap(entity);

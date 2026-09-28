@@ -1,5 +1,5 @@
 using Amazon.DynamoDBv2;
-using DynamoDb.Repository.Aws;
+using DynamoDb.Repository;
 using Microsoft.Extensions.Options;
 using Moq;
 
@@ -70,7 +70,7 @@ public sealed class RepositoryValidationTests
         Assert.Throws<ArgumentOutOfRangeException>(() => repository.Query.Take(0));
     }
 
-    private static AwsDynamoDbRepository<TestEntity> CreateRepository() => new(
+    private static DynamoDbRepository<TestEntity> CreateRepository() => new(
         Mock.Of<IAmazonDynamoDB>(),
         Options.Create(new DynamoDbRepositoryOptions
         {

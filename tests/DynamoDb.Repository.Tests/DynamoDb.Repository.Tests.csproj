@@ -4,7 +4,7 @@
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../../src/DynamoDb.Repository.Aws/DynamoDb.Repository.Aws.csproj" />
+    <ProjectReference Include="../../src/DynamoDb.Repository/DynamoDb.Repository.csproj" />
     <ProjectReference Include="../../src/Accounts.Domain/Accounts.Domain.csproj" />
     <ProjectReference Include="../../src/Accounts.Application/Accounts.Application.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />

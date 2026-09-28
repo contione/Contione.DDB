@@ -2,7 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="../Accounts.Application/Accounts.Application.csproj" />
     <ProjectReference Include="../Accounts.Domain/Accounts.Domain.csproj" />
-    <ProjectReference Include="../DynamoDb.Repository.Aws/DynamoDb.Repository.Aws.csproj" />
+    <ProjectReference Include="../DynamoDb.Repository/DynamoDb.Repository.csproj" />
     <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" />
   </ItemGroup>
 </Project>

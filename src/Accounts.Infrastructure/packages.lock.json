@@ -67,26 +67,22 @@
       "accounts.application": {
         "type": "Project",
         "dependencies": {
-          "Accounts.Domain": "[2.0.0, )",
-          "Professional.DynamoDb.Repository": "[2.0.0, )"
+          "Accounts.Domain": "[3.0.0, )",
+          "Professional.DynamoDb.Repository": "[3.0.0, )"
         }
       },
       "accounts.domain": {
         "type": "Project",
         "dependencies": {
-          "Professional.DynamoDb.Repository": "[2.0.0, )"
+          "AWSSDK.DynamoDBv2": "[4.0.102.1, )"
         }
       },
       "Professional.DynamoDb.Repository": {
-        "type": "Project"
-      },
-      "Professional.DynamoDb.Repository.Aws": {
         "type": "Project",
         "dependencies": {
           "AWSSDK.DynamoDBv2": "[4.0.102.1, )",
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.10, )",
-          "Microsoft.Extensions.Options.ConfigurationExtensions": "[10.0.10, )",
-          "Professional.DynamoDb.Repository": "[2.0.0, )"
+          "Microsoft.Extensions.Options.ConfigurationExtensions": "[10.0.10, )"
         }
       },
       "AWSSDK.DynamoDBv2": {

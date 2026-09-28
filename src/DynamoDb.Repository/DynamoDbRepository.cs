@@ -6,22 +6,23 @@ using Amazon.DynamoDBv2;
 using Amazon.DynamoDBv2.Model;
 using Microsoft.Extensions.Options;
 
-namespace DynamoDb.Repository.Aws;
+namespace DynamoDb.Repository;
 
-public sealed partial class AwsDynamoDbRepository<TEntity> : IDynamoDbRepository<TEntity>
+public sealed partial class DynamoDbRepository<TEntity> : IDynamoDbRepository<TEntity>, IDisposable
     where TEntity : class
 {
     private readonly IAmazonDynamoDB _client;
     private readonly DynamoDbRepositoryOptions _options;
     private readonly EntityMetadata _metadata = EntityMetadata.For<TEntity>();
-    private readonly EntityMapper<TEntity> _mapper = new();
+    private readonly EntityMapper<TEntity> _mapper;
     private readonly string _tableName;
 
-    public AwsDynamoDbRepository(IAmazonDynamoDB client, IOptions<DynamoDbRepositoryOptions> options)
+    public DynamoDbRepository(IAmazonDynamoDB client, IOptions<DynamoDbRepositoryOptions> options)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(options);
         _client = client;
+        _mapper = new(client);
         var configured = options.Value;
         if (!ValidOptions(configured))
         {
@@ -42,6 +43,8 @@ public sealed partial class AwsDynamoDbRepository<TEntity> : IDynamoDbRepository
     }
 
     public IDynamoDbQuery<TEntity> Query => new DynamoDbQuery<TEntity>(this);
+
+    public void Dispose() => _mapper.Dispose();
 
     internal static bool ValidOptions(DynamoDbRepositoryOptions options) =>
         options.DefaultFetchSize > 0 && options.MaxPageSize > 0 &&
@@ -203,11 +206,11 @@ public sealed partial class AwsDynamoDbRepository<TEntity> : IDynamoDbRepository
 
     private QueryPlan CreatePlan(QueryState<TEntity> state)
     {
-        if (state.IndexName is not null && state.ConsistentRead)
+        if (_metadata.GetKeySchema(state.IndexName).IsGlobalIndex && state.ConsistentRead)
         {
-            throw new InvalidOperationException("Mapped secondary indexes are global indexes and do not support consistent reads.");
+            throw new InvalidOperationException("Global secondary indexes do not support consistent reads.");
         }
-        var plan = QueryPlanner.Create(state.Predicates, state.IndexName);
+        var plan = QueryPlanner.Create(state.Predicates, state.IndexName, _mapper.Context);
         if (!plan.IsQuery && !(state.AllowScan ?? _options.AllowScan))
         {
             throw new InvalidOperationException("This query requires a scan. Add a partition-key equality or explicitly call AllowScan().");
@@ -275,8 +278,8 @@ public sealed partial class AwsDynamoDbRepository<TEntity> : IDynamoDbRepository
         return key;
     }
 
-    private static AttributeValue ConvertKey(object value, PropertyMetadata property)
-        => AttributeValueConverter.FromKey(value, property);
+    private AttributeValue ConvertKey(object value, PropertyMetadata property)
+        => AttributeValueConverter.FromKey(value, property, _metadata.Conversion, _mapper.Context);
 
     private void AddItems(List<Dictionary<string, AttributeValue>>? source, ICollection<TEntity> destination)
     {

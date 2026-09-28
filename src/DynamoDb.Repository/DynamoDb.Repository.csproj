@@ -1,9 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Provider-agnostic fluent repository abstractions for DynamoDB.</Description>
+    <Description>Fluent DynamoDB repository built on the official AWS SDK DataModel.</Description>
     <PackageId>Professional.DynamoDb.Repository</PackageId>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.DynamoDBv2" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
