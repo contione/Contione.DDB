@@ -119,6 +119,18 @@ await repository.UpdateAsync(tenantId, orderId, update,
 
 `UpdateAsync` 默认要求记录存在；主键不能修改，同一属性不能重复修改。`Remove(x => x.OptionalProperty)` 删除属性；清空稀疏索引键也应使用 `Remove`。支持带条件的 `PutAsync`、`DeleteAsync`。版本推进由调用方显式设置，条件检查与更新由 DynamoDB 原子执行。
 
+对于 `CustomerId` 为分区键、`SegmentId` 为排序键的表，可以使用独立的 `CustomerSegmentRepository` 读取所有 Segment ID。它使用 `Query`、只投影排序键，并自动处理 `LastEvaluatedKey` 分页：
+
+```csharp
+var segmentRepository = new CustomerSegmentRepository(
+    dynamoDb,
+    AppConsts.DynamoDb.CustomerSegment.TableName,
+    AppConsts.DynamoDb.CustomerSegment.CustomerId,
+    AppConsts.DynamoDb.CustomerSegment.SegmentId);
+
+var segmentIds = await segmentRepository.GetSegmentIdsAsync(customerId, ct);
+```
+
 数值累加使用 `Increment`，可与 `Set`、`Remove` 组合，一次请求原子更新：
 
 ```csharp
