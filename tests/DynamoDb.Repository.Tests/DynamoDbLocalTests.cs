@@ -90,6 +90,102 @@ public sealed class DynamoDbLocalTests
         Assert.Equal(12, await repository.Query.AllowScan().CountAsync(cancellation));
     }
 
+    [DynamoDbLocalFact]
+    public async Task Batch_write_splits_mixed_operations_and_replaces_complete_items()
+    {
+        await using var database = await LocalDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var repository = database.Repository;
+        var cancellation = TestContext.Current.CancellationToken;
+
+        await repository.PutAsync(new()
+        {
+            Pk = "replace-null",
+            Sk = 1,
+            Name = "old-name",
+            Enabled = true,
+            State = HardeningState.Inactive,
+            IndexKey = null,
+        }, cancellation);
+        await repository.PutAsync(new()
+        {
+            Pk = "replace-value",
+            Sk = 1,
+            Name = "old-value",
+            IndexKey = null,
+        }, cancellation);
+        await repository.PutAsync(new()
+        {
+            Pk = "delete",
+            Sk = 1,
+            Name = "to-delete",
+            IndexKey = null,
+        }, cancellation);
+
+        var putItems = Enumerable.Range(0, 26).Select(index => new HardeningEntity
+        {
+            Pk = index switch
+            {
+                0 => "replace-null",
+                1 => "replace-value",
+                _ => "batch",
+            },
+            Sk = index < 2 ? 1 : index - 1,
+            Name = index switch
+            {
+                0 => null,
+                1 => "new-value",
+                _ => $"batch-{index - 1}",
+            },
+            State = HardeningState.Active,
+            Enabled = false,
+            IndexKey = null,
+        }).ToArray();
+
+        await repository.BatchWriteAsync(
+            putItems,
+            [new HardeningEntity { Pk = "delete", Sk = 1, IndexKey = null }],
+            cancellation);
+
+        var replacedWithNull = await repository.GetAsync("replace-null", 1, consistentRead: true, cancellationToken: cancellation);
+        Assert.NotNull(replacedWithNull);
+        Assert.Null(replacedWithNull.Name);
+        Assert.False(replacedWithNull.Enabled);
+        Assert.Equal(HardeningState.Active, replacedWithNull.State);
+        var replacedWithValue = await repository.GetAsync("replace-value", 1, consistentRead: true, cancellationToken: cancellation);
+        Assert.NotNull(replacedWithValue);
+        Assert.Equal("new-value", replacedWithValue.Name);
+        Assert.False(replacedWithValue.Enabled);
+        Assert.Equal(24, await repository.Query.Where(item => item.Pk == "batch").CountAsync(cancellation));
+        Assert.Equal("batch-1", (await repository.GetAsync("batch", 1, cancellationToken: cancellation))!.Name);
+        Assert.Null(await repository.GetAsync("delete", 1, cancellationToken: cancellation));
+    }
+
+    [DynamoDbLocalFact]
+    public async Task Batch_write_supports_delete_only_batches()
+    {
+        await using var database = await LocalDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        var repository = database.Repository;
+        var cancellation = TestContext.Current.CancellationToken;
+        var items = new[]
+        {
+            new HardeningEntity { Pk = "delete-only", Sk = 1, Name = "one", IndexKey = null },
+            new HardeningEntity { Pk = "delete-only", Sk = 2, Name = "two", IndexKey = null },
+        };
+
+        await repository.BatchWriteAsync(putItems: items, cancellationToken: cancellation);
+        await repository.BatchWriteAsync(
+            deleteItems: items.Select(item => new HardeningEntity
+            {
+                Pk = item.Pk,
+                Sk = item.Sk,
+                IndexKey = null,
+            }),
+            cancellationToken: cancellation);
+
+        Assert.Null(await repository.GetAsync("delete-only", 1, cancellationToken: cancellation));
+        Assert.Null(await repository.GetAsync("delete-only", 2, cancellationToken: cancellation));
+    }
+
     private sealed class LocalDatabase(AmazonDynamoDBClient client, string tableName, DynamoDbRepository<HardeningEntity> repository) : IAsyncDisposable
     {
         public DynamoDbRepository<HardeningEntity> Repository { get; } = repository;

@@ -121,6 +121,19 @@ await repository.UpdateAsync(tenantId, orderId, update,
 
 条件失败不应盲目重试；读取最新状态后再决定业务行为。超时或取消不能证明写入未发生，涉及订单等业务时仍需应用层幂等标识。服务限流和瞬态错误交由 AWS SDK 的重试策略处理。
 
+## 批量写入与删除
+
+```csharp
+await repository.BatchWriteAsync(
+    putItems: accountsToPut,
+    deleteItems: accountsToDelete,
+    cancellationToken: cancellationToken);
+```
+
+两个集合都可省略，也可为空；删除实体只使用其主键。内部复用官方 `DynamoDBContext.CreateBatchWrite<TEntity>()`，使用仓储配置的实际表名（含前缀），由 SDK 按每批最多 25 个操作执行并处理返回的未处理项。取消令牌会传递给 SDK。
+
+Put 是整条替换，不支持局部更新或条件写入；同一主键不要重复出现在同一批请求中。整批不是事务，失败或取消时可能已有部分操作成功，不会自动回滚。该方法的批处理由 SDK 管理，不受仅用于读取的 `MaxRequestsPerOperation` / `MaxEvaluatedItems` 限制；大量数据建议由调用方分段传入并设置超时。
+
 ## 注册
 
 ```csharp
@@ -182,4 +195,4 @@ dotnet pack src/DynamoDb.Repository/DynamoDb.Repository.csproj -c Release -o art
 
 分页令牌采用带版本和查询上下文指纹的 JSON + Base64Url，保留字符串、数字、二进制键类型。上下文校验用于防止误用游标，不是密码学签名，也不是授权机制。需要拒绝客户端篡改的 API 应在边界对整个令牌签名或加密；不应将令牌内容作为租户或权限依据。
 
-本库没有宣称支持完整 LINQ、事务、批量写入、任意投影或 Native AOT。生产发布仍应在目标 AWS 账户验证 IAM、吞吐与重试行为，并用业务数据进行负载测试；DynamoDB Local 不模拟这些托管服务特性。
+本库没有宣称支持完整 LINQ、事务、批量局部更新、任意投影或 Native AOT。生产发布仍应在目标 AWS 账户验证 IAM、吞吐与重试行为，并用业务数据进行负载测试；DynamoDB Local 不模拟这些托管服务特性。

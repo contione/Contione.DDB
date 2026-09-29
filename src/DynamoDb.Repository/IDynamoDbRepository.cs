@@ -14,6 +14,17 @@ public interface IDynamoDbRepository<TEntity> where TEntity : class
 
     Task PutAsync(TEntity entity, CancellationToken cancellationToken = default);
 
+    /// <summary>Creates or fully replaces items and deletes items by their primary keys using the SDK batch writer.</summary>
+    /// <remarks>
+    /// The SDK splits operations into batches of up to 25. This is not a transaction:
+    /// failures or cancellation may leave some writes applied. Conditions and partial updates are not supported.
+    /// Omitted or empty sequences contribute no operations.
+    /// </remarks>
+    Task BatchWriteAsync(
+        IEnumerable<TEntity>? putItems = null,
+        IEnumerable<TEntity>? deleteItems = null,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Creates an item only if its primary key does not already exist.</summary>
     Task CreateAsync(TEntity entity, CancellationToken cancellationToken = default);
 

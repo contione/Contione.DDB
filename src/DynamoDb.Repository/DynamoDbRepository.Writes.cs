@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using Amazon.DynamoDBv2.DataModel;
 using Amazon.DynamoDBv2.Model;
 
 namespace DynamoDb.Repository;
@@ -8,6 +9,25 @@ public sealed partial class DynamoDbRepository<TEntity>
     /// <summary>Creates or fully replaces an item. Use CreateAsync or a condition to prevent overwrites.</summary>
     public Task PutAsync(TEntity entity, CancellationToken cancellationToken = default) =>
         PutCoreAsync(entity, null, createOnly: false, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task BatchWriteAsync(
+        IEnumerable<TEntity>? putItems = null,
+        IEnumerable<TEntity>? deleteItems = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (putItems is null && deleteItems is null) return;
+
+        var batch = _mapper.Context.CreateBatchWrite<TEntity>(new DynamoDBOperationConfig
+        {
+            OverrideTableName = _tableName,
+        });
+        if (putItems is not null) batch.AddPutItems(putItems);
+        if (deleteItems is not null) batch.AddDeleteItems(deleteItems);
+
+        await batch.ExecuteAsync(cancellationToken).ConfigureAwait(false);
+    }
 
     public Task CreateAsync(TEntity entity, CancellationToken cancellationToken = default) =>
         PutCoreAsync(entity, null, createOnly: true, cancellationToken);
