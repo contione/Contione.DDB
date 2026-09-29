@@ -119,6 +119,22 @@ await repository.UpdateAsync(tenantId, orderId, update,
 
 `UpdateAsync` 默认要求记录存在；主键不能修改，同一属性不能重复修改。`Remove(x => x.OptionalProperty)` 删除属性；清空稀疏索引键也应使用 `Remove`。支持带条件的 `PutAsync`、`DeleteAsync`。版本推进由调用方显式设置，条件检查与更新由 DynamoDB 原子执行。
 
+数值累加使用 `Increment`，可与 `Set`、`Remove` 组合，一次请求原子更新：
+
+```csharp
+var update = new DynamoDbUpdate<Canvas>()
+    .Increment(x => x.InputTokens, input)
+    .Increment(x => x.OutputTokens, output)
+    .Increment(x => x.TotalTokens, total)
+    .Set(x => x.LastEditTime, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+
+await repository.UpdateAsync(canvasId, null, update, cancellationToken: ct);
+```
+
+底层生成 `SET #field = if_not_exists(#field, :zero) + :amount`，直接由 DynamoDB 累加，无需先读取。字段缺失从零开始，负数表示递减；记录不存在仍抛出 `DynamoDbConditionFailedException`。复合主键表需传入实际排序键。
+
+支持内置整数、`float`、`double`、`decimal` 及其可空属性，增量必须为有限数值；不支持自定义 `IPropertyConverter`。可空属性在数据库中必须为数值或不存在，已存储的 DynamoDB `NULL` 不等于字段缺失，需要先清理数据。累加不是幂等操作，请求结果不确定时重试可能重复计数；需要精确去重时应结合业务幂等设计。
+
 条件失败不应盲目重试；读取最新状态后再决定业务行为。超时或取消不能证明写入未发生，涉及订单等业务时仍需应用层幂等标识。服务限流和瞬态错误交由 AWS SDK 的重试策略处理。
 
 ## 批量写入与删除

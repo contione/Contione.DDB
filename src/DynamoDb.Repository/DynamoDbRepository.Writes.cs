@@ -118,6 +118,11 @@ public sealed partial class DynamoDbRepository<TEntity>
                 removals.Add(name);
                 continue;
             }
+            if (change.IsIncrement && (property.Converter is not null ||
+                change.Value is not (sbyte or byte or short or ushort or int or uint or long or ulong or float or double or decimal)))
+            {
+                throw new ArgumentException("Increment requires a built-in numeric property without a custom converter.", nameof(update));
+            }
             if (property.IsIndexKey)
             {
                 if (change.Value is null) throw new ArgumentException("Use Remove to clear an index key.", nameof(update));
@@ -127,7 +132,15 @@ public sealed partial class DynamoDbRepository<TEntity>
             {
                 values[$":u{changed.Count}"] = AttributeValueConverter.FromObject(change.Value, property, _metadata.Conversion, _mapper.Context);
             }
-            sets.Add($"{name} = :u{changed.Count}");
+            if (change.IsIncrement)
+            {
+                values[":incrementZero"] = new AttributeValue { N = "0" };
+                sets.Add($"{name} = if_not_exists({name}, :incrementZero) + :u{changed.Count}");
+            }
+            else
+            {
+                sets.Add($"{name} = :u{changed.Count}");
+            }
         }
 
         var clauses = new List<string>(2);

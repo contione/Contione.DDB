@@ -186,9 +186,142 @@ public sealed class DynamoDbLocalTests
         Assert.Null(await repository.GetAsync("delete-only", 2, cancellationToken: cancellation));
     }
 
+    [DynamoDbLocalFact]
+    public async Task Increment_initializes_missing_fields_and_combines_set_operations()
+    {
+        await using var database = await LocalDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        using var repository = database.CreateRepository<CounterEntity>();
+        var cancellation = TestContext.Current.CancellationToken;
+        await repository.PutAsync(new CounterEntity
+        {
+            Pk = "counter",
+            Sk = 1,
+            InputTokens = 10,
+            OutputTokens = 20,
+            TotalTokens = 30,
+            LastEditTime = 1,
+            Amount = 1.25m,
+            OptionalTokens = 9,
+        }, cancellation);
+
+        await repository.UpdateAsync(
+            "counter",
+            1,
+            new DynamoDbUpdate<CounterEntity>()
+                .Remove(item => item.InputTokens)
+                .Remove(item => item.Amount)
+                .Remove(item => item.OptionalTokens),
+            cancellationToken: cancellation);
+
+        var editedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var update = new DynamoDbUpdate<CounterEntity>()
+            .Increment(item => item.InputTokens, 5L)
+            .Increment(item => item.OutputTokens, -2L)
+            .Increment(item => item.TotalTokens, 0L)
+            .Increment(item => item.Amount, 2.75m)
+            .Increment(item => item.OptionalTokens, 4L)
+            .Set(item => item.LastEditTime, editedAt);
+        await repository.UpdateAsync("counter", 1, update, cancellationToken: cancellation);
+
+        var stored = await repository.GetAsync("counter", 1, consistentRead: true, cancellationToken: cancellation);
+        Assert.NotNull(stored);
+        Assert.Equal(5L, stored.InputTokens);
+        Assert.Equal(18L, stored.OutputTokens);
+        Assert.Equal(30L, stored.TotalTokens);
+        Assert.Equal(editedAt, stored.LastEditTime);
+        Assert.Equal(2.75m, stored.Amount);
+        Assert.Equal(4L, stored.OptionalTokens);
+
+        await repository.UpdateAsync(
+            "counter",
+            1,
+            new DynamoDbUpdate<CounterEntity>()
+                .Increment(item => item.InputTokens, -2L)
+                .Increment(item => item.Amount, -0.75m)
+                .Increment(item => item.OptionalTokens, -4L),
+            cancellationToken: cancellation);
+
+        stored = await repository.GetAsync("counter", 1, consistentRead: true, cancellationToken: cancellation);
+        Assert.NotNull(stored);
+        Assert.Equal(3L, stored.InputTokens);
+        Assert.Equal(2m, stored.Amount);
+        Assert.Equal(0L, stored.OptionalTokens);
+    }
+
+    [DynamoDbLocalFact]
+    public async Task Concurrent_increments_are_atomic_and_conditions_are_enforced()
+    {
+        await using var database = await LocalDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        using var repository = database.CreateRepository<CounterEntity>();
+        var cancellation = TestContext.Current.CancellationToken;
+        await repository.PutAsync(new CounterEntity { Pk = "concurrent", Sk = 1 }, cancellation);
+
+        var attempts = Enumerable.Range(0, 8).Select(_ => repository.UpdateAsync(
+            "concurrent",
+            1,
+            new DynamoDbUpdate<CounterEntity>().Increment(item => item.TotalTokens, 1L),
+            cancellationToken: cancellation));
+        await Task.WhenAll(attempts);
+
+        var stored = await repository.GetAsync("concurrent", 1, consistentRead: true, cancellationToken: cancellation);
+        Assert.Equal(8L, stored!.TotalTokens);
+
+        await Assert.ThrowsAsync<DynamoDbConditionFailedException>(() => repository.UpdateAsync(
+            "concurrent",
+            1,
+            new DynamoDbUpdate<CounterEntity>().Increment(item => item.TotalTokens, 100L),
+            item => item.TotalTokens == 0L,
+            cancellation));
+        stored = await repository.GetAsync("concurrent", 1, consistentRead: true, cancellationToken: cancellation);
+        Assert.Equal(8L, stored!.TotalTokens);
+    }
+
+    [DynamoDbLocalFact]
+    public async Task Increment_rejects_missing_records()
+    {
+        await using var database = await LocalDatabase.CreateAsync(TestContext.Current.CancellationToken);
+        using var repository = database.CreateRepository<CounterEntity>();
+
+        await Assert.ThrowsAsync<DynamoDbConditionFailedException>(() => repository.UpdateAsync(
+            "missing",
+            1,
+            new DynamoDbUpdate<CounterEntity>().Increment(item => item.InputTokens, 1L),
+            cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [DynamoDbLocalFact]
+    public async Task Increment_does_not_treat_stored_null_as_a_missing_field()
+    {
+        var cancellation = TestContext.Current.CancellationToken;
+        await using var database = await LocalDatabase.CreateAsync(cancellation);
+        using var repository = database.CreateRepository<CounterEntity>();
+        await repository.PutAsync(new CounterEntity { Pk = "null-counter", Sk = 1 }, cancellation);
+        await repository.UpdateAsync("null-counter", 1,
+            new DynamoDbUpdate<CounterEntity>().Set(x => x.OptionalTokens, (long?)null),
+            cancellationToken: cancellation);
+
+        var exception = await Assert.ThrowsAsync<AmazonDynamoDBException>(() => repository.UpdateAsync(
+            "null-counter", 1,
+            new DynamoDbUpdate<CounterEntity>().Increment(x => x.OptionalTokens, 1L).Set(x => x.LastEditTime, 100L),
+            cancellationToken: cancellation));
+
+        Assert.Equal("ValidationException", exception.ErrorCode);
+        var stored = await repository.GetAsync("null-counter", 1, consistentRead: true, cancellationToken: cancellation);
+        Assert.NotNull(stored);
+        Assert.Null(stored.OptionalTokens);
+        Assert.Equal(0L, stored.LastEditTime);
+    }
+
     private sealed class LocalDatabase(AmazonDynamoDBClient client, string tableName, DynamoDbRepository<HardeningEntity> repository) : IAsyncDisposable
     {
         public DynamoDbRepository<HardeningEntity> Repository { get; } = repository;
+
+        public DynamoDbRepository<TEntity> CreateRepository<TEntity>() where TEntity : class =>
+            new(client, Options.Create(new DynamoDbRepositoryOptions
+            {
+                TableNamePrefix = tableName[..^"hardening".Length],
+                DefaultFetchSize = 3,
+            }));
 
         public static async Task<LocalDatabase> CreateAsync(CancellationToken cancellationToken)
         {
